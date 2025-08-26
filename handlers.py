@@ -1,7 +1,7 @@
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
@@ -51,12 +51,16 @@ async def start_shift(message: types.Message, state: FSMContext):
         # Разделяем по 'T' и берём первую часть (дата)
         delivery_date_formatted = raw_delivery_date.split('T')[0]
     
+    # Обработка "Вид": Получаем текст по ID enum
+    raw_type_id = deal_data.get('UF_CRM_1756191602')
+    type_text = await get_enum_text('UF_CRM_1756191602', raw_type_id) if raw_type_id else "Неизвестно"
+    
     deal = Deal(
         id=int(deal_data.get('ID', 0)),
         title=deal_data.get('TITLE', ''),
         address=deal_data.get('UF_CRM_1756190928', ''),
         contact=contact_str,  # Теперь полные данные вместо ID
-        type=deal_data.get('UF_CRM_1756191602', ''),
+        type=type_text,  # Теперь текст вместо ID
         model=deal_data.get('UF_CRM_1756191922', ''),
         delivery_date=raw_delivery_date  # Сохраняем оригинал, но для вывода используем formatted
     )
@@ -83,11 +87,13 @@ async def start_shift(message: types.Message, state: FSMContext):
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
     if query.data == "confirm_pickup":
         await query.answer("Заказ подтверждён.")
+        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
         await query.message.answer("После получения введите марку/модель:")
         await state.set_state(ShiftStates.update_model)
     else:
         await query.bot.send_message(MANAGER_TG_ID, f"Курьер {query.from_user.id} не подтвердил заказ (Ветка 1).")
         await query.answer("Отказано. Уведомление отправлено.")
+        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
         await state.clear()
 
 async def update_model_handler(message: types.Message, state: FSMContext):
@@ -101,11 +107,13 @@ async def update_model_handler(message: types.Message, state: FSMContext):
 async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext):
     if query.data == "accept_delivery":
         await query.answer("Заявка принята.")
+        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
         await query.message.answer("После доставки введите сумму в рублях:")
         await state.set_state(ShiftStates.enter_amount)
     else:
         await query.bot.send_message(MANAGER_TG_ID, f"Курьер {query.from_user.id} не принял заявку (Ветка 2).")
         await query.answer("Отказано. Уведомление отправлено.")
+        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
         await state.clear()
 
 async def enter_amount_handler(message: types.Message, state: FSMContext):
@@ -117,10 +125,10 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        # Обновляем стадию и сумму (добавьте реальный код поля суммы, например 'UF_CRM_XXX_SUMMA')
+        # Обновляем стадию и сумму (реальный код поля суммы)
         await update_deal(deal_id, {
             'STAGE_ID': 'FINAL_INVOICE',  # Реальный ID стадии
-            'UF_CRM_XXX_SUMMA': amount  # Присваиваем сумму в кастомное поле (замените на реальный код)
+            'UF_CRM_1756212985': amount  # Присваиваем сумму в кастомное поле
         })
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена).")
     await state.clear()

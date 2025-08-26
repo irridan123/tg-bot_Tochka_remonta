@@ -1,5 +1,5 @@
 import aiohttp
-from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL
+from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL, BITRIX_USERFIELD_WEBHOOK_URL
 import logging
 
 # Маппинг: Telegram ID -> Bitrix User ID (обновите на ваши реальные)
@@ -20,7 +20,7 @@ async def get_deals_for_user(user_id: int) -> list[dict]:
                 'TITLE', 
                 'UF_CRM_1756190928',   # Адрес
                 'CONTACT_ID',          # ID контакта
-                'UF_CRM_1756191602',   # Вид техники
+                'UF_CRM_1756191602',   # Вид техники (ID enum)
                 'UF_CRM_1756191922',   # Марка/модель
                 'UF_CRM_1756191987'    # Дата доставки
             ]
@@ -51,6 +51,36 @@ async def get_contact_data(contact_id: int) -> dict:
         except Exception as e:
             logging.error(f"Bitrix contact API error: {e}")
             return {}
+
+async def get_enum_text(field_code: str, value_id: str) -> str:
+    """Получает текст значения для списочного (enum) поля по ID."""
+    if not value_id:
+        return "Неизвестно"
+    async with aiohttp.ClientSession() as session:
+        url = f"{BITRIX_USERFIELD_WEBHOOK_URL}crm.deal.userfield.list"
+        params = {
+            'filter': {'FIELD_NAME': field_code}  # Фильтр по коду поля
+        }
+        try:
+            async with session.post(url, json=params) as resp:
+                data = await resp.json()
+                logging.debug(f"Bitrix userfield list response: {data}")
+                fields = data.get('result', [])
+                if not fields:
+                    logging.debug(f"No fields found for code: {field_code}")
+                    return value_id  # Если поле не найдено
+                enum_list = fields[0].get('LIST', [])  # Исправлено: 'LIST' вместо 'ENUM'
+                logging.debug(f"Enum list for field {field_code}: {enum_list}")
+                for item in enum_list:
+                    if item.get('ID') == value_id:
+                        value_text = item.get('VALUE', value_id)
+                        logging.debug(f"Found value: {value_text} for ID {value_id}")
+                        return value_text  # Возвращаем текст или ID если не найдено
+                logging.debug(f"No matching ID {value_id} in enum list")
+                return value_id  # Если не найдено, возвращаем ID
+        except Exception as e:
+            logging.error(f"Bitrix userfield API error: {e}")
+            return value_id
 
 async def update_deal(deal_id: int, fields: dict):
     async with aiohttp.ClientSession() as session:
