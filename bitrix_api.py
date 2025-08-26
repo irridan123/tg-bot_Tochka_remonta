@@ -10,11 +10,17 @@ USER_MAPPING = {
 async def get_user_id_by_tg(tg_id: int) -> int | None:
     return USER_MAPPING.get(tg_id, None)
 
-async def get_deals_for_user(user_id: int) -> list[dict]:
+async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
+    filter_params = {'RESPONSIBLE_ID': user_id}
+    if branch == 1:  # Ветка 1: Без даты доставки
+        filter_params['UF_CRM_1756191987'] = None  # null
+    elif branch == 2:  # Ветка 2: С датой доставки
+        filter_params['!UF_CRM_1756191987'] = None  # not null
+
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"
         params = {
-            'filter': {'RESPONSIBLE_ID': user_id},
+            'filter': filter_params,
             'select': [
                 'ID', 
                 'TITLE', 

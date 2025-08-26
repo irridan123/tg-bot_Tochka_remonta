@@ -10,6 +10,7 @@ import logging
 def setup_handlers(dp: Dispatcher):
     dp.message.register(start_handler, Command('start'))  # Новый handler для /start
     dp.message.register(start_shift, Command('start_shift'))
+    dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)  # Новый handler для выбора ветки
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
@@ -24,9 +25,27 @@ async def start_shift(message: types.Message, state: FSMContext):
     if not user_id:
         await message.answer("Вы не авторизованы. Добавьте свой ID в маппинг.")
         return
-    deals = await get_deals_for_user(user_id)
+    # Показываем кнопки выбора ветки
+    text = "Выберите тип смены:"
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="1. Получение товара от заказчика", callback_data="branch_1")],
+        [types.InlineKeyboardButton(text="2. Доставка отремонтированного товара", callback_data="branch_2")]
+    ])
+    await message.answer(text, reply_markup=keyboard)
+    await state.set_state(ShiftStates.choose_branch)
+
+async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
+    branch = 1 if query.data == "branch_1" else 2
+    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+    await query.answer(f"Выбрана ветка {branch}.")
+    user_id = await get_user_id_by_tg(query.from_user.id)
+    deals = await get_deals_for_user(user_id, branch)
     if not deals:
-        await message.answer("Нет активных сделок.")
+        if branch == 1:
+            await query.message.answer("Нет активных сделок для получения товара.")
+        else:
+            await query.message.answer("Нет активных сделок для доставки товара.")
+        await state.clear()
         return
     # Берём первую сделку для простоты
     deal_data = deals[0]
@@ -41,14 +60,12 @@ async def start_shift(message: types.Message, state: FSMContext):
         name = contact_data.get('NAME', '')
         last_name = contact_data.get('LAST_NAME', '')
         phone = contact_data.get('PHONE', [{}])[0].get('VALUE', '') if 'PHONE' in contact_data else ''
-        # email = contact_data.get('EMAIL', [{}])[0].get('VALUE', '') if 'EMAIL' in contact_data else ''  # Добавьте, если нужно
         contact_str = f"{name} {last_name} {phone}".strip()
     
     # Обработка даты доставки: берём только дату из ISO-формата
     raw_delivery_date = deal_data.get('UF_CRM_1756191987')
     delivery_date_formatted = "Нет даты"
     if raw_delivery_date:
-        # Разделяем по 'T' и берём первую часть (дата)
         delivery_date_formatted = raw_delivery_date.split('T')[0]
     
     # Обработка "Вид": Получаем текст по ID enum
@@ -59,29 +76,36 @@ async def start_shift(message: types.Message, state: FSMContext):
         id=int(deal_data.get('ID', 0)),
         title=deal_data.get('TITLE', ''),
         address=deal_data.get('UF_CRM_1756190928', ''),
-        contact=contact_str,  # Теперь полные данные вместо ID
-        type=type_text,  # Теперь текст вместо ID
+        contact=contact_str,
+        type=type_text,
         model=deal_data.get('UF_CRM_1756191922', ''),
-        delivery_date=raw_delivery_date  # Сохраняем оригинал, но для вывода используем formatted
+        delivery_date=raw_delivery_date
     )
-    await state.set_data({'deal_id': deal.id})  # Сохраняем ID сделки
-    logging.info(f"Processing deal ID: {deal.id} for user {tg_id}")
+    await state.set_data({'deal_id': deal.id, 'branch': branch})  # Сохраняем ID сделки и ветку
+    logging.info(f"Processing deal ID: {deal.id} for user {query.from_user.id} in branch {branch}")
 
-    if deal.delivery_date:  # Ветка 2: Доставка
-        text = f"Данные: Контакты: {deal.contact}, Адрес: {deal.address}, Дата: {delivery_date_formatted}, Вид: {deal.type}, Модель: {deal.model}"
+    # Формат отображения данных
+    text = f"Ветка: {branch}\n" \
+           f"Название сделки: {deal.title}\n" \
+           f"Контакты: {deal.contact}\n" \
+           f"Адрес: {deal.address}\n" \
+           f"Дата доставки: {delivery_date_formatted}\n" \
+           f"Вид: {deal.type}\n" \
+           f"Модель: {deal.model}"
+
+    if branch == 2:  # Ветка 2: Доставка
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Принять", callback_data="accept_delivery"),
              types.InlineKeyboardButton(text="Отказать", callback_data="reject_delivery")]
         ])
-        await message.answer(text, reply_markup=keyboard)
+        await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_delivery)
     else:  # Ветка 1: Получение
-        text = f"Данные: Адрес: {deal.address}, Контакты: {deal.contact}, Вид: {deal.type}, Модель: {deal.model}, Название: {deal.title}"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Подтвердить", callback_data="confirm_pickup"),
              types.InlineKeyboardButton(text="Отказать", callback_data="reject_pickup")]
         ])
-        await message.answer(text, reply_markup=keyboard)
+        await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_pickup)
 
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):

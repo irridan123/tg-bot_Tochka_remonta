@@ -1,6 +1,7 @@
 from aiogram.fsm.state import State, StatesGroup
 
 class ShiftStates(StatesGroup):
+    choose_branch = State()       # Новое: Ожидание выбора ветки
     confirm_pickup = State()      # Подтверждение для Ветки 1
     update_model = State()        # Ввод модели для Ветки 1
 
