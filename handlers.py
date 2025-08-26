@@ -5,13 +5,18 @@ from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
+import logging
 
 def setup_handlers(dp: Dispatcher):
+    dp.message.register(start_handler, Command('start'))  # Новый handler для /start
     dp.message.register(start_shift, Command('start_shift'))
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
+
+async def start_handler(message: types.Message):
+    await message.answer("Добро пожаловать в бота для курьеров! Чтобы начать смену, используйте команду /start_shift.")
 
 async def start_shift(message: types.Message, state: FSMContext):
     tg_id = message.from_user.id
@@ -26,15 +31,16 @@ async def start_shift(message: types.Message, state: FSMContext):
     # Берём первую сделку для простоты
     deal_data = deals[0]
     deal = Deal(
-        id=deal_data.get('ID'),
+        id=int(deal_data.get('ID', 0)),
         title=deal_data.get('TITLE', ''),
-        address=deal_data.get('UF_ADDRESS', ''),
-        contact=deal_data.get('UF_CONTACT', ''),
-        type=deal_data.get('UF_TYPE', ''),
-        model=deal_data.get('UF_MODEL', ''),
-        delivery_date=deal_data.get('UF_DELIVERY_DATE')
+        address=deal_data.get('UF_CRM_1756190928', ''),
+        contact=deal_data.get('CONTACT_ID', ''),
+        type=deal_data.get('UF_CRM_1756191602', ''),
+        model=deal_data.get('UF_CRM_1756191922', ''),
+        delivery_date=deal_data.get('UF_CRM_1756191987')
     )
     await state.set_data({'deal_id': deal.id})  # Сохраняем ID сделки
+    logging.info(f"Processing deal ID: {deal.id} for user {tg_id}")
 
     if deal.delivery_date:  # Ветка 2: Доставка
         text = f"Данные: Контакты: {deal.contact}, Адрес: {deal.address}, Дата: {deal.delivery_date}, Вид: {deal.type}, Модель: {deal.model}"
@@ -90,6 +96,6 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'STAGE_ID': 'BABKI_U_NAS'})  # Замените на реальный ID стадии
+        await update_deal(deal_id, {'STAGE_ID': 'FINAL_INVOICE'})  # Замените 'BABKI_U_NAS' на реальный ID стадии в Bitrix
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас').")
     await state.clear()

@@ -1,3 +1,4 @@
 /myenv
 /.env
 /delivery-id.txt
+/__pycache__
