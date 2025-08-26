@@ -1,7 +1,7 @@
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
@@ -30,20 +30,41 @@ async def start_shift(message: types.Message, state: FSMContext):
         return
     # Берём первую сделку для простоты
     deal_data = deals[0]
+    
+    # Получаем ID контакта и запрашиваем полные данные
+    contact_id = deal_data.get('CONTACT_ID')
+    contact_data = await get_contact_data(int(contact_id) if contact_id else 0)
+    
+    # Формируем строку с контактными данными (имя, фамилия, телефон; добавьте email если нужно)
+    contact_str = "Нет контактов"
+    if contact_data:
+        name = contact_data.get('NAME', '')
+        last_name = contact_data.get('LAST_NAME', '')
+        phone = contact_data.get('PHONE', [{}])[0].get('VALUE', '') if 'PHONE' in contact_data else ''
+        # email = contact_data.get('EMAIL', [{}])[0].get('VALUE', '') if 'EMAIL' in contact_data else ''  # Добавьте, если нужно
+        contact_str = f"{name} {last_name} {phone}".strip()
+    
+    # Обработка даты доставки: берём только дату из ISO-формата
+    raw_delivery_date = deal_data.get('UF_CRM_1756191987')
+    delivery_date_formatted = "Нет даты"
+    if raw_delivery_date:
+        # Разделяем по 'T' и берём первую часть (дата)
+        delivery_date_formatted = raw_delivery_date.split('T')[0]
+    
     deal = Deal(
         id=int(deal_data.get('ID', 0)),
         title=deal_data.get('TITLE', ''),
         address=deal_data.get('UF_CRM_1756190928', ''),
-        contact=deal_data.get('CONTACT_ID', ''),
+        contact=contact_str,  # Теперь полные данные вместо ID
         type=deal_data.get('UF_CRM_1756191602', ''),
         model=deal_data.get('UF_CRM_1756191922', ''),
-        delivery_date=deal_data.get('UF_CRM_1756191987')
+        delivery_date=raw_delivery_date  # Сохраняем оригинал, но для вывода используем formatted
     )
     await state.set_data({'deal_id': deal.id})  # Сохраняем ID сделки
     logging.info(f"Processing deal ID: {deal.id} for user {tg_id}")
 
     if deal.delivery_date:  # Ветка 2: Доставка
-        text = f"Данные: Контакты: {deal.contact}, Адрес: {deal.address}, Дата: {deal.delivery_date}, Вид: {deal.type}, Модель: {deal.model}"
+        text = f"Данные: Контакты: {deal.contact}, Адрес: {deal.address}, Дата: {delivery_date_formatted}, Вид: {deal.type}, Модель: {deal.model}"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Принять", callback_data="accept_delivery"),
              types.InlineKeyboardButton(text="Отказать", callback_data="reject_delivery")]
@@ -73,7 +94,7 @@ async def update_model_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'UF_MODEL': message.text})
+        await update_deal(deal_id, {'UF_CRM_1756191922': message.text})  # Используйте реальный код поля модели
         await message.answer("Марка/модель обновлена в CRM.")
     await state.clear()
 
@@ -96,6 +117,10 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'STAGE_ID': 'FINAL_INVOICE'})  # Замените 'BABKI_U_NAS' на реальный ID стадии в Bitrix
-        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас').")
+        # Обновляем стадию и сумму (добавьте реальный код поля суммы, например 'UF_CRM_XXX_SUMMA')
+        await update_deal(deal_id, {
+            'STAGE_ID': 'FINAL_INVOICE',  # Реальный ID стадии
+            'UF_CRM_XXX_SUMMA': amount  # Присваиваем сумму в кастомное поле (замените на реальный код)
+        })
+        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена).")
     await state.clear()
