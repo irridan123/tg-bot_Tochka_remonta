@@ -12,6 +12,7 @@ def setup_handlers(dp: Dispatcher):
     dp.message.register(start_shift, Command('start_shift'))
     dp.message.register(set_name_handler, Command('set_name'))  # Handler для /set_name
     dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)  # Handler для выбора ветки
+    dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal)  # Handler для выбора сделки
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
     dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)  # Handler для завершения заказа
@@ -70,9 +71,34 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
         ])
         await query.message.answer(text, reply_markup=keyboard)
         return  # Не очищаем состояние, чтобы обработать "Вернуться"
-    # Берём первую сделку для простоты
-    deal_data = deals[0]
-    
+    if len(deals) == 1:
+        # Если одна сделка, сразу показываем данные
+        await show_deal_data(query, state, deals[0], branch)
+    else:
+        # Если несколько, показываем список для выбора
+        text = "Выберите сделку:"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text=deal.get('TITLE', 'Сделка без названия'), callback_data=f"deal_{deal['ID']}_{branch}")] for deal in deals
+        ])
+        await query.message.answer(text, reply_markup=keyboard)
+        await state.set_state(ShiftStates.choose_deal)
+
+async def handle_deal_choice(query: types.CallbackQuery, state: FSMContext):
+    data_parts = query.data.split('_')
+    deal_id = int(data_parts[1])
+    branch = int(data_parts[2])
+    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+    await query.answer(f"Выбрана сделка ID {deal_id}.")
+    user_id = await get_user_id_by_tg(query.from_user.id)
+    deals = await get_deals_for_user(user_id, branch)
+    selected_deal = next((deal for deal in deals if deal['ID'] == str(deal_id)), None)
+    if not selected_deal:
+        await query.message.answer("Сделка не найдена. Попробуйте заново.")
+        await state.clear()
+        return
+    await show_deal_data(query, state, selected_deal, branch)
+
+async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal_data: dict, branch: int):
     # Получаем ID контакта и запрашиваем полные данные
     contact_id = deal_data.get('CONTACT_ID')
     contact_data = await get_contact_data(int(contact_id) if contact_id else 0)
