@@ -1,14 +1,57 @@
 import aiohttp
+import json
+import os
 from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL, BITRIX_USERFIELD_WEBHOOK_URL
 import logging
 
-# Маппинг: Telegram ID -> Bitrix User ID (обновите на ваши реальные)
-USER_MAPPING = {
-    1389473957: 1  # Ваш Telegram ID и Bitrix ID
-}
+# Путь к JSON-файлу для хранения данных курьеров
+USER_DATA_FILE = 'user_data.json'
+
+# Загрузка USER_DATA из JSON при запуске
+def load_user_data():
+    if os.path.exists(USER_DATA_FILE):
+        try:
+            with open(USER_DATA_FILE, 'r') as f:
+                content = f.read().strip()  # Удаляем пробелы
+                if not content:  # Если файл пуст
+                    return {}  # Возвращаем пустой dict
+                return json.loads(content)
+        except json.JSONDecodeError as e:
+            logging.error(f"JSON decode error in {USER_DATA_FILE}: {e}")
+            return {}  # Возвращаем пустой dict при ошибке
+        except Exception as e:
+            logging.error(f"Error loading {USER_DATA_FILE}: {e}")
+            return {}
+    return {}  # Если файла нет, пустой dict
+
+# Сохранение USER_DATA в JSON
+def save_user_data(user_data):
+    try:
+        with open(USER_DATA_FILE, 'w') as f:
+            json.dump(user_data, f, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving {USER_DATA_FILE}: {e}")
+
+USER_DATA = load_user_data()  # Загружаем при старте
 
 async def get_user_id_by_tg(tg_id: int) -> int | None:
-    return USER_MAPPING.get(tg_id, None)
+    tg_str = str(tg_id)  # Ключи в JSON как строки
+    user = USER_DATA.get(tg_str)
+    return user.get('bitrix_id') if user else None
+
+async def get_user_name_by_tg(tg_id: int) -> str:
+    tg_str = str(tg_id)
+    user = USER_DATA.get(tg_str)
+    return user.get('name', 'Неизвестный') if user else 'Неизвестный'
+
+async def set_user_name(tg_id: int, name: str):
+    tg_str = str(tg_id)
+    if tg_str in USER_DATA:
+        USER_DATA[tg_str]['name'] = name
+    else:
+        # Если новый пользователь, добавляем с placeholder bitrix_id (замените на реальный)
+        USER_DATA[tg_str] = {'bitrix_id': None, 'name': name}  # Если bitrix_id неизвестен, обновите вручную
+    save_user_data(USER_DATA)  # Сохраняем в файл
 
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
     filter_params = {'RESPONSIBLE_ID': user_id}

@@ -1,23 +1,41 @@
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
 import logging
 
 def setup_handlers(dp: Dispatcher):
-    dp.message.register(start_handler, Command('start'))  # Новый handler для /start
+    dp.message.register(start_handler, Command('start'))  # Handler для /start
     dp.message.register(start_shift, Command('start_shift'))
-    dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)  # Новый handler для выбора ветки
+    dp.message.register(set_name_handler, Command('set_name'))  # Handler для /set_name
+    dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)  # Handler для выбора ветки
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
+    dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)  # Handler для завершения заказа
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
+    dp.message.register(enter_reject_comment_handler, ShiftStates.enter_reject_comment)  # Handler для комментария при отказе
+    dp.message.register(enter_name_handler, ShiftStates.enter_name)  # Handler для ввода имени
+    dp.callback_query.register(handle_return_to_menu, lambda query: query.data == "return_to_menu")  # Handler для "Вернуться"
 
 async def start_handler(message: types.Message):
     await message.answer("Добро пожаловать в бота для курьеров! Чтобы начать смену, используйте команду /start_shift.")
+
+async def set_name_handler(message: types.Message, state: FSMContext):
+    await message.answer("Введите ваше имя для уведомлений:")
+    await state.set_state(ShiftStates.enter_name)
+
+async def enter_name_handler(message: types.Message, state: FSMContext):
+    name = message.text.strip()
+    if name:
+        await set_user_name(message.from_user.id, name)
+        await message.answer(f"Имя '{name}' сохранено.")
+    else:
+        await message.answer("Имя не может быть пустым. Попробуйте снова.")
+    await state.clear()
 
 async def start_shift(message: types.Message, state: FSMContext):
     tg_id = message.from_user.id
@@ -25,11 +43,16 @@ async def start_shift(message: types.Message, state: FSMContext):
     if not user_id:
         await message.answer("Вы не авторизованы. Добавьте свой ID в маппинг.")
         return
-    # Показываем кнопки выбора ветки
+    # Запрашиваем количество сделок для каждой ветки
+    deals_branch1 = await get_deals_for_user(user_id, 1)
+    deals_branch2 = await get_deals_for_user(user_id, 2)
+    count1 = len(deals_branch1)
+    count2 = len(deals_branch2)
+    # Показываем кнопки выбора ветки с количеством
     text = "Выберите тип смены:"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="1. Получение товара от заказчика", callback_data="branch_1")],
-        [types.InlineKeyboardButton(text="2. Доставка отремонтированного товара", callback_data="branch_2")]
+        [types.InlineKeyboardButton(text=f"1. Получение товара от заказчика ({count1} сделок)", callback_data="branch_1")],
+        [types.InlineKeyboardButton(text=f"2. Доставка отремонтированного товара ({count2} сделок)", callback_data="branch_2")]
     ])
     await message.answer(text, reply_markup=keyboard)
     await state.set_state(ShiftStates.choose_branch)
@@ -41,12 +64,12 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
     user_id = await get_user_id_by_tg(query.from_user.id)
     deals = await get_deals_for_user(user_id, branch)
     if not deals:
-        if branch == 1:
-            await query.message.answer("Нет активных сделок для получения товара.")
-        else:
-            await query.message.answer("Нет активных сделок для доставки товара.")
-        await state.clear()
-        return
+        text = "Нет активных сделок для получения товара." if branch == 1 else "Нет активных сделок для доставки товара."
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Вернуться", callback_data="return_to_menu")]
+        ])
+        await query.message.answer(text, reply_markup=keyboard)
+        return  # Не очищаем состояние, чтобы обработать "Вернуться"
     # Берём первую сделку для простоты
     deal_data = deals[0]
     
@@ -84,8 +107,9 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
     await state.set_data({'deal_id': deal.id, 'branch': branch})  # Сохраняем ID сделки и ветку
     logging.info(f"Processing deal ID: {deal.id} for user {query.from_user.id} in branch {branch}")
 
-    # Формат отображения данных
-    text = f"Ветка: {branch}\n" \
+    # Формат отображения данных с полным текстом ветки
+    branch_text = "1. Получение товара от заказчика" if branch == 1 else "2. Доставка отремонтированного товара"
+    text = f"{branch_text}\n" \
            f"Название сделки: {deal.title}\n" \
            f"Контакты: {deal.contact}\n" \
            f"Адрес: {deal.address}\n" \
@@ -115,10 +139,9 @@ async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
         await query.message.answer("После получения введите марку/модель:")
         await state.set_state(ShiftStates.update_model)
     else:
-        await query.bot.send_message(MANAGER_TG_ID, f"Курьер {query.from_user.id} не подтвердил заказ (Ветка 1).")
-        await query.answer("Отказано. Уведомление отправлено.")
         await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
-        await state.clear()
+        await query.message.answer("Введите комментарий к отказу:")
+        await state.set_state(ShiftStates.enter_reject_comment)
 
 async def update_model_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
@@ -126,6 +149,21 @@ async def update_model_handler(message: types.Message, state: FSMContext):
     if deal_id:
         await update_deal(deal_id, {'UF_CRM_1756191922': message.text})  # Используйте реальный код поля модели
         await message.answer("Марка/модель обновлена в CRM.")
+    
+    # Показываем кнопку "Завершить заказ"
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Завершить заказ", callback_data="complete_order")]
+    ])
+    await message.answer("Нажмите, чтобы завершить заказ:", reply_markup=keyboard)
+    await state.set_state(ShiftStates.complete_order)
+
+async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    deal_id = data.get('deal_id')
+    if deal_id:
+        await update_deal(deal_id, {'STAGE_ID': 'EXECUTING'})  # Реальный ID стадии "Устройство в офисе"
+        await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
+    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку
     await state.clear()
 
 async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext):
@@ -135,10 +173,25 @@ async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext)
         await query.message.answer("После доставки введите сумму в рублях:")
         await state.set_state(ShiftStates.enter_amount)
     else:
-        await query.bot.send_message(MANAGER_TG_ID, f"Курьер {query.from_user.id} не принял заявку (Ветка 2).")
-        await query.answer("Отказано. Уведомление отправлено.")
         await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
-        await state.clear()
+        await query.message.answer("Введите комментарий к отказу:")
+        await state.set_state(ShiftStates.enter_reject_comment)
+
+async def enter_reject_comment_handler(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    branch = data.get('branch')
+    comment = message.text.strip()
+    user_id = message.from_user.id
+    user_name = await get_user_name_by_tg(user_id)  # Получаем имя курьера
+    if branch == 1:
+        notification = f"Курьер {user_name} ({user_id}) не подтвердил заказ (Ветка 1)."
+    else:
+        notification = f"Курьер {user_name} ({user_id}) не принял заявку (Ветка 2)."
+    if comment:
+        notification += f" Комментарий: {comment}"
+    await message.bot.send_message(MANAGER_TG_ID, notification)
+    await message.answer("Отказ подтверждён. Уведомление отправлено руководителю.")
+    await state.clear()
 
 async def enter_amount_handler(message: types.Message, state: FSMContext):
     try:
@@ -156,3 +209,14 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
         })
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена).")
     await state.clear()
+
+async def handle_return_to_menu(query: types.CallbackQuery, state: FSMContext):
+    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку "Вернуться"
+    await query.answer("Возвращаемся к выбору смены.")
+    text = "Выберите тип смены:"
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="1. Получение товара от заказчика", callback_data="branch_1")],
+        [types.InlineKeyboardButton(text="2. Доставка отремонтированного товара", callback_data="branch_2")]
+    ])
+    await query.message.answer(text, reply_markup=keyboard)
+    await state.set_state(ShiftStates.choose_branch)
