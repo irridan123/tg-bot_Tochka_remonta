@@ -54,7 +54,7 @@ async def set_user_name(tg_id: int, name: str):
     save_user_data(USER_DATA)  # Сохраняем в файл
 
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
-    filter_params = {'RESPONSIBLE_ID': user_id}
+    filter_params = {'UF_CRM_1756305557': user_id}  # Изменено: Фильтр по кастомному полю "Курьер"
     if branch == 1:  # Ветка 1: Без даты доставки
         filter_params['UF_CRM_1756191987'] = None  # null
     elif branch == 2:  # Ветка 2: С датой доставки
