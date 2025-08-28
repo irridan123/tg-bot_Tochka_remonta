@@ -1,7 +1,7 @@
 from aiogram import Dispatcher, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
@@ -228,12 +228,15 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        # Обновляем стадию и сумму (реальный код поля суммы)
+        current_amount = await get_deal_amount(deal_id)  # Получаем текущую сумму
+        new_amount = current_amount + amount  # Прибавляем введённую сумму
+        # Обновляем стадию и сумму
         await update_deal(deal_id, {
             'STAGE_ID': 'FINAL_INVOICE',  # Реальный ID стадии
-            'UF_CRM_1756212985': amount  # Присваиваем сумму в кастомное поле
+            'OPPORTUNITY': new_amount,  # Обновляем сумму сделки
+            'UF_CRM_1756360872': amount  # Присваиваем сумму в кастомное поле (если нужно сохранить отдельно)
         })
-        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена).")
+        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
     await state.clear()
 
 async def handle_return_to_menu(query: types.CallbackQuery, state: FSMContext):

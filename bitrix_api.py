@@ -54,7 +54,7 @@ async def set_user_name(tg_id: int, name: str):
     save_user_data(USER_DATA)  # Сохраняем в файл
 
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
-    filter_params = {'UF_CRM_1756305557': user_id}  # Изменено: Фильтр по кастомному полю "Курьер"
+    filter_params = {'RESPONSIBLE_ID': user_id}
     if branch == 1:  # Ветка 1: Без даты доставки
         filter_params['UF_CRM_1756191987'] = None  # null
     elif branch == 2:  # Ветка 2: С датой доставки
@@ -82,6 +82,24 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
         except Exception as e:
             logging.error(f"Bitrix deal API error: {e}")
             return []
+
+async def get_deal_amount(deal_id: int) -> float:
+    """Получает текущую сумму сделки ('OPPORTUNITY') из Bitrix24."""
+    async with aiohttp.ClientSession() as session:
+        url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.get"
+        params = {
+            'id': deal_id,
+            'select': ['OPPORTUNITY']  # Сумма сделки
+        }
+        try:
+            async with session.post(url, json=params) as resp:
+                data = await resp.json()
+                logging.debug(f"Bitrix deal get response: {data}")
+                amount = data.get('result', {}).get('OPPORTUNITY', 0.0)
+                return float(amount) if amount else 0.0
+        except Exception as e:
+            logging.error(f"Bitrix deal get error: {e}")
+            return 0.0
 
 async def get_contact_data(contact_id: int) -> dict:
     if not contact_id:
