@@ -15,6 +15,7 @@ def setup_handlers(dp: Dispatcher):
     dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal)  # Handler для выбора сделки
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
+    dp.message.register(enter_complectation_handler, ShiftStates.enter_complectation)  # Новый handler для комплектации
     dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)  # Handler для завершения заказа
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
@@ -173,8 +174,19 @@ async def update_model_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'UF_CRM_1756191922': message.text})  # Используйте реальный код поля модели
+        await update_deal(deal_id, {'UF_CRM_1756191922': message.text})  # Обновляем поле модели
         await message.answer("Марка/модель обновлена в CRM.")
+    
+    await message.answer("Введите комплектацию:")
+    await state.set_state(ShiftStates.enter_complectation)
+
+async def enter_complectation_handler(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    deal_id = data.get('deal_id')
+    complectation = message.text.strip()
+    if deal_id and complectation:
+        await update_deal(deal_id, {'UF_CRM_1756474226': complectation})  # Обновляем поле комплектации
+        await message.answer("Комплектация обновлена в CRM.")
     
     # Показываем кнопку "Завершить заказ"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
@@ -234,7 +246,7 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
         await update_deal(deal_id, {
             'STAGE_ID': 'FINAL_INVOICE',  # Реальный ID стадии
             'OPPORTUNITY': new_amount,  # Обновляем сумму сделки
-            'UF_CRM_1756360872': amount  # Присваиваем сумму в кастомное поле (если нужно сохранить отдельно)
+            'UF_CRM_1756360872': amount  # Присваиваем сумму в кастомное поле
         })
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
     await state.clear()
