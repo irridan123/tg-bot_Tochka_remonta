@@ -1,15 +1,14 @@
 # Файл: bitrix_api.py
-# Изменения: Добавлена функция upload_file_to_disk для загрузки файла в Bitrix Disk с использованием метода disk.folder.uploadfile.
-# Функция принимает ID папки (из config), имя файла и байты содержимого. Кодирует в base64 и отправляет POST-запрос.
-# Если вебхук не подходит (например, ошибка авторизации), замените на webhook для disk.file.upload (если загружаете не в папку).
-# Но текущий метод подходит по документации: https://apidocs.bitrix24.ru/api-reference/disk/folder/uploadfile.html
-# Импортирован base64 для кодирования.
+# Изменения: Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756737862.
+# Функция получает текущее значение поля через crm.deal.get, добавляет новую ссылку и обновляет через crm.deal.update.
+# В upload_file_to_disk: Убедитесь, что ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
+# Если нужно другой URL, используйте disk.file.get с ID файла для получения.
 import aiohttp
 import json
 import os
 from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL, BITRIX_USERFIELD_WEBHOOK_URL, BITRIX_DISK_WEBHOOK_URL, BITRIX_FOLDER_ID
 import logging
-import base64  # Новый импорт для base64
+import base64
 
 # Путь к JSON-файлу для хранения данных курьеров
 USER_DATA_FILE = 'user_data.json'
@@ -108,6 +107,31 @@ async def get_deal_amount(deal_id: int) -> float:
         except Exception as e:
             logging.error(f"Bitrix deal get error: {e}")
             return 0.0
+
+async def get_deal_field(deal_id: int, field_name: str) -> list:
+    """Получает значение пользовательского поля из сделки."""
+    async with aiohttp.ClientSession() as session:
+        url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.get"
+        params = {
+            'id': deal_id,
+            'select': [field_name]
+        }
+        try:
+            async with session.post(url, json=params) as resp:
+                data = await resp.json()
+                logging.debug(f"Bitrix deal field get response: {data}")
+                value = data.get('result', {}).get(field_name, [])
+                return value if isinstance(value, list) else [value] if value else []
+        except Exception as e:
+            logging.error(f"Bitrix deal field get error: {e}")
+            return []
+
+async def add_link_to_deal_field(deal_id: int, field_name: str, new_link: str):
+    """Добавляет ссылку в множественное поле сделки."""
+    current_links = await get_deal_field(deal_id, field_name)
+    current_links.append(new_link)  # Добавляем новую ссылку
+    fields = {field_name: current_links}
+    await update_deal(deal_id, fields)
 
 async def get_contact_data(contact_id: int) -> dict:
     if not contact_id:

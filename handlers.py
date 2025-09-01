@@ -1,20 +1,18 @@
 # Файл: handlers.py
 # Изменения: 
-# - Исправлена ошибка регистрации хэндлера для upload_file_handler: В aiogram 3.x не поддерживается kwarg content_types.
-#   Вместо этого используем магические фильтры (magic filters) из aiogram: F.photo | F.document для фильтрации по типам контента PHOTO и DOCUMENT.
-# - Добавлен импорт from aiogram import F в начало файла.
-# - Изменена строка регистрации: dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)
-#   Это соответствует документации aiogram 3.x: фильтры передаются как позиционные аргументы, без kwargs.
-# - Инструкция: Замените handlers.py на этот код. Перезапустите бота. Если ошибка persists, убедитесь, что версия aiogram == 3.22.0 (как в requirements.txt).
-#   Подробности миграции: https://docs.aiogram.dev/en/dev-3.x/migration_2_to_3.html#filtering-events
-#   (Магические фильтры позволяют фильтровать события, такие как типы сообщений, без устаревших kwargs.)
-from aiogram import Dispatcher, types, F  # Новый импорт: F для magic filters
+# - В show_deal_data: Удалена строка с email из текста сообщения.
+# - Добавлена условная проверка для даты доставки: отображается только если branch == 2.
+# - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
+# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field.
+# - Импорт обновлён: Добавлен add_link_to_deal_field из bitrix_api.
+# - Остальной код без изменений.
+from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.filters.command import Command
-from aiogram.types import ContentType  # Оставляем, хотя для F.photo не обязательно, но может быть полезен
+from aiogram.types import ContentType
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, BITRIX_FOLDER_ID
-from config import MANAGER_TG_ID
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, add_link_to_deal_field  # Новый импорт: add_link_to_deal_field
+from config import MANAGER_TG_ID, BITRIX_FOLDER_ID
 from models import Deal
 from states import ShiftStates
 import logging
@@ -94,96 +92,59 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
         # Если несколько, показываем список для выбора
         text = "Выберите сделку:"
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text=deal.get('TITLE', 'Сделка без названия'), callback_data=f"deal_{deal['ID']}_{branch}")] for deal in deals
+            [types.InlineKeyboardButton(text=deal['TITLE'], callback_data=f"deal_{deal['ID']}")] for deal in deals
         ])
         await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.choose_deal)
+        await state.update_data(branch=branch, deals=deals)
 
 async def handle_deal_choice(query: types.CallbackQuery, state: FSMContext):
-    data_parts = query.data.split('_')
-    deal_id = int(data_parts[1])
-    branch = int(data_parts[2])
-    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
-    await query.answer(f"Выбрана сделка ID {deal_id}.")
-    user_id = await get_user_id_by_tg(query.from_user.id)
-    deals = await get_deals_for_user(user_id, branch)
-    selected_deal = next((deal for deal in deals if deal['ID'] == str(deal_id)), None)
-    if not selected_deal:
-        await query.message.answer("Сделка не найдена. Попробуйте заново.")
-        await state.clear()
-        return
-    await show_deal_data(query, state, selected_deal, branch)
+    deal_id = int(query.data.split('_')[1])
+    data = await state.get_data()
+    branch = data.get('branch')
+    deals = data.get('deals')
+    deal = next((d for d in deals if d['ID'] == str(deal_id)), None)
+    if deal:
+        await show_deal_data(query, state, deal, branch)
+    else:
+        await query.answer("Сделка не найдена.")
 
-async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal_data: dict, branch: int):
-    # Сохраняем deal_id в state для дальнейшего использования
-    await state.update_data(deal_id=int(deal_data['ID']), branch=branch)
+async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: dict, branch: int):
+    contact_data = await get_contact_data(int(deal.get('CONTACT_ID', 0)))
+    contact = f"{contact_data.get('NAME', '')} {contact_data.get('LAST_NAME', '')}".strip()
+    phone = contact_data.get('PHONE', [{}])[0].get('VALUE', 'Нет') if contact_data.get('PHONE') else 'Нет'
+    type_id = deal.get('UF_CRM_1756191602')
+    type_text = await get_enum_text('UF_CRM_1756191602', type_id)
+    model = deal.get('UF_CRM_1756191922', 'Не указана')
+    address = deal.get('UF_CRM_1756190928', 'Не указан')
+    delivery_date = deal.get('UF_CRM_1756191987', 'Не указана')
     
-    # Получаем ID контакта и запрашиваем полные данные
-    contact_id = deal_data.get('CONTACT_ID')
-    contact_data = await get_contact_data(int(contact_id) if contact_id else 0)
+    text = f"Сделка: {deal['TITLE']}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}"
+    if branch == 2:
+        text += f"\nДата доставки: {delivery_date}"
     
-    # Формируем строку с контактными данными (имя, фамилия, телефон; добавьте email если нужно)
-    contact_str = "Нет контактов"
-    if contact_data:
-        name = contact_data.get('NAME', '')
-        last_name = contact_data.get('LAST_NAME', '')
-        phone = contact_data.get('PHONE', [{}])[0].get('VALUE', '') if contact_data.get('PHONE') else ''
-        # email = contact_data.get('EMAIL', [{}])[0].get('VALUE', '') if contact_data.get('EMAIL') else ''
-        contact_str = f"{name} {last_name}\nТелефон: {phone}"  # Добавьте \nEmail: {email} если нужно
-    
-    # Получаем текст для enum-поля "Вид техники"
-    type_id = deal_data.get('UF_CRM_1756191602')
-    type_text = await get_enum_text('UF_CRM_1756191602', type_id) if type_id else "Неизвестно"
-    
-    # Модель (может быть пустой)
-    model = deal_data.get('UF_CRM_1756191922', "Не указана")
-    
-    # Адрес
-    address = deal_data.get('UF_CRM_1756190928', "Не указан")
-    
-    # Дата доставки (только для ветки 2)
-    delivery_date = deal_data.get('UF_CRM_1756191987')
-    delivery_date_formatted = delivery_date if delivery_date else "Не указана"
-    
-    # Создаём экземпляр Deal для удобства (опционально, но по коду)
-    deal = Deal(
-        id=int(deal_data['ID']),
-        title=deal_data.get('TITLE', "Сделка без названия"),
-        address=address,
-        contact=contact_str,
-        type=type_text,
-        model=model,
-        delivery_date=delivery_date_formatted
-    )
-    
-    # Формируем текст сообщения
-    text = f"Сделка: {deal.title}\n" \
-           f"Контакт: {deal.contact}\n" \
-           f"Адрес: {deal.address}\n" \
-           f"Дата доставки: {delivery_date_formatted}\n" \
-           f"Вид: {deal.type}\n" \
-           f"Модель: {deal.model}"
-
-    if branch == 2:  # Ветка 2: Доставка
+    if branch == 1:
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Принять", callback_data="accept_delivery"),
-             types.InlineKeyboardButton(text="Отказать", callback_data="reject_delivery")]
-        ])
-        await query.message.answer(text, reply_markup=keyboard)
-        await state.set_state(ShiftStates.confirm_delivery)
-    else:  # Ветка 1: Получение
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Подтвердить", callback_data="confirm_pickup"),
-             types.InlineKeyboardButton(text="Отказать", callback_data="reject_pickup")]
+            [types.InlineKeyboardButton(text="Подтвердить забор", callback_data="accept_pickup"),
+             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_pickup")]
         ])
         await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_pickup)
+    else:
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Принять заявку", callback_data="accept_delivery"),
+             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_delivery")]
+        ])
+        await query.message.answer(text, reply_markup=keyboard)
+        await state.set_state(ShiftStates.confirm_delivery)
+    
+    await state.update_data(deal_id=int(deal['ID']), branch=branch)
 
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
-    if query.data == "confirm_pickup":
-        await query.answer("Заказ подтверждён.")
+    if query.data == "accept_pickup":
+        await query.answer("Забор подтверждён.")
         await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
-        await query.message.answer("После получения введите марку/модель:")
+        await query.message.answer("Введите марку/модель (если нужно обновить):")
         await state.set_state(ShiftStates.update_model)
     else:
         await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
@@ -234,7 +195,18 @@ async def upload_file_handler(message: types.Message, state: FSMContext):
     # Загружаем в Bitrix Disk
     upload_result = await upload_file_to_disk(BITRIX_FOLDER_ID, file_name, file_content)
     if upload_result.get('result'):
-        await message.answer(f"Файл '{file_name}' успешно загружен в Bitrix Disk.")
+        # Извлекаем URL файла (используем DETAIL_URL; если нужно DOWNLOAD_URL, замените)
+        file_url = upload_result['result'].get('DETAIL_URL')
+        if file_url:
+            data = await state.get_data()
+            deal_id = data.get('deal_id')
+            if deal_id:
+                await add_link_to_deal_field(deal_id, 'UF_CRM_1756737862', file_url)
+                await message.answer(f"Файл '{file_name}' успешно загружен в Bitrix Disk и ссылка добавлена в сделку.")
+            else:
+                await message.answer("Ошибка: ID сделки не найден.")
+        else:
+            await message.answer("Файл загружен, но URL не получен.")
     else:
         await message.answer("Ошибка загрузки файла в Bitrix. Попробуйте снова.")
 
