@@ -1,8 +1,15 @@
+# Файл: bitrix_api.py
+# Изменения: Добавлена функция upload_file_to_disk для загрузки файла в Bitrix Disk с использованием метода disk.folder.uploadfile.
+# Функция принимает ID папки (из config), имя файла и байты содержимого. Кодирует в base64 и отправляет POST-запрос.
+# Если вебхук не подходит (например, ошибка авторизации), замените на webhook для disk.file.upload (если загружаете не в папку).
+# Но текущий метод подходит по документации: https://apidocs.bitrix24.ru/api-reference/disk/folder/uploadfile.html
+# Импортирован base64 для кодирования.
 import aiohttp
 import json
 import os
-from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL, BITRIX_USERFIELD_WEBHOOK_URL
+from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_DEAL_UPDATE_WEBHOOK_URL, BITRIX_USERFIELD_WEBHOOK_URL, BITRIX_DISK_WEBHOOK_URL, BITRIX_FOLDER_ID
 import logging
+import base64  # Новый импорт для base64
 
 # Путь к JSON-файлу для хранения данных курьеров
 USER_DATA_FILE = 'user_data.json'
@@ -159,4 +166,23 @@ async def update_deal(deal_id: int, fields: dict):
                 return await resp.json()
         except Exception as e:
             logging.error(f"Bitrix update error: {e}")
+            return {}
+
+async def upload_file_to_disk(folder_id: int, file_name: str, file_content: bytes) -> dict:
+    """Загружает файл в папку Bitrix24 Disk с использованием disk.folder.uploadfile."""
+    base64_content = base64.b64encode(file_content).decode('utf-8')
+    async with aiohttp.ClientSession() as session:
+        url = f"{BITRIX_DISK_WEBHOOK_URL}disk.folder.uploadfile"
+        params = {
+            'id': folder_id,
+            'data': {'NAME': file_name},
+            'fileContent': [file_name, base64_content]
+        }
+        try:
+            async with session.post(url, json=params) as resp:
+                data = await resp.json()
+                logging.debug(f"Bitrix disk upload response: {data}")
+                return data
+        except Exception as e:
+            logging.error(f"Bitrix disk upload error: {e}")
             return {}

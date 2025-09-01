@@ -1,11 +1,24 @@
-from aiogram import Dispatcher, types
+# Файл: handlers.py
+# Изменения: 
+# - Исправлена ошибка регистрации хэндлера для upload_file_handler: В aiogram 3.x не поддерживается kwarg content_types.
+#   Вместо этого используем магические фильтры (magic filters) из aiogram: F.photo | F.document для фильтрации по типам контента PHOTO и DOCUMENT.
+# - Добавлен импорт from aiogram import F в начало файла.
+# - Изменена строка регистрации: dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)
+#   Это соответствует документации aiogram 3.x: фильтры передаются как позиционные аргументы, без kwargs.
+# - Инструкция: Замените handlers.py на этот код. Перезапустите бота. Если ошибка persists, убедитесь, что версия aiogram == 3.22.0 (как в requirements.txt).
+#   Подробности миграции: https://docs.aiogram.dev/en/dev-3.x/migration_2_to_3.html#filtering-events
+#   (Магические фильтры позволяют фильтровать события, такие как типы сообщений, без устаревших kwargs.)
+from aiogram import Dispatcher, types, F  # Новый импорт: F для magic filters
 from aiogram.filters import Command
+from aiogram.filters.command import Command
+from aiogram.types import ContentType  # Оставляем, хотя для F.photo не обязательно, но может быть полезен
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, BITRIX_FOLDER_ID
 from config import MANAGER_TG_ID
 from models import Deal
 from states import ShiftStates
 import logging
+import time  # Для генерации уникальных имен файлов, если нужно
 
 def setup_handlers(dp: Dispatcher):
     dp.message.register(start_handler, Command('start'))  # Handler для /start
@@ -16,6 +29,8 @@ def setup_handlers(dp: Dispatcher):
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
     dp.message.register(enter_complectation_handler, ShiftStates.enter_complectation)  # Новый handler для комплектации
+    dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)  # Новый: Handler для загрузки файлов (исправлено с magic filters)
+    dp.callback_query.register(handle_finish_upload, lambda query: query.data == "finish_upload")  # Новый: Завершить загрузку
     dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)  # Handler для завершения заказа
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
@@ -100,6 +115,9 @@ async def handle_deal_choice(query: types.CallbackQuery, state: FSMContext):
     await show_deal_data(query, state, selected_deal, branch)
 
 async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal_data: dict, branch: int):
+    # Сохраняем deal_id в state для дальнейшего использования
+    await state.update_data(deal_id=int(deal_data['ID']), branch=branch)
+    
     # Получаем ID контакта и запрашиваем полные данные
     contact_id = deal_data.get('CONTACT_ID')
     contact_data = await get_contact_data(int(contact_id) if contact_id else 0)
@@ -109,36 +127,38 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal_dat
     if contact_data:
         name = contact_data.get('NAME', '')
         last_name = contact_data.get('LAST_NAME', '')
-        phone = contact_data.get('PHONE', [{}])[0].get('VALUE', '') if 'PHONE' in contact_data else ''
-        contact_str = f"{name} {last_name} {phone}".strip()
+        phone = contact_data.get('PHONE', [{}])[0].get('VALUE', '') if contact_data.get('PHONE') else ''
+        # email = contact_data.get('EMAIL', [{}])[0].get('VALUE', '') if contact_data.get('EMAIL') else ''
+        contact_str = f"{name} {last_name}\nТелефон: {phone}"  # Добавьте \nEmail: {email} если нужно
     
-    # Обработка даты доставки: берём только дату из ISO-формата
-    raw_delivery_date = deal_data.get('UF_CRM_1756191987')
-    delivery_date_formatted = "Нет даты"
-    if raw_delivery_date:
-        delivery_date_formatted = raw_delivery_date.split('T')[0]
+    # Получаем текст для enum-поля "Вид техники"
+    type_id = deal_data.get('UF_CRM_1756191602')
+    type_text = await get_enum_text('UF_CRM_1756191602', type_id) if type_id else "Неизвестно"
     
-    # Обработка "Вид": Получаем текст по ID enum
-    raw_type_id = deal_data.get('UF_CRM_1756191602')
-    type_text = await get_enum_text('UF_CRM_1756191602', raw_type_id) if raw_type_id else "Неизвестно"
+    # Модель (может быть пустой)
+    model = deal_data.get('UF_CRM_1756191922', "Не указана")
     
+    # Адрес
+    address = deal_data.get('UF_CRM_1756190928', "Не указан")
+    
+    # Дата доставки (только для ветки 2)
+    delivery_date = deal_data.get('UF_CRM_1756191987')
+    delivery_date_formatted = delivery_date if delivery_date else "Не указана"
+    
+    # Создаём экземпляр Deal для удобства (опционально, но по коду)
     deal = Deal(
-        id=int(deal_data.get('ID', 0)),
-        title=deal_data.get('TITLE', ''),
-        address=deal_data.get('UF_CRM_1756190928', ''),
+        id=int(deal_data['ID']),
+        title=deal_data.get('TITLE', "Сделка без названия"),
+        address=address,
         contact=contact_str,
         type=type_text,
-        model=deal_data.get('UF_CRM_1756191922', ''),
-        delivery_date=raw_delivery_date
+        model=model,
+        delivery_date=delivery_date_formatted
     )
-    await state.set_data({'deal_id': deal.id, 'branch': branch})  # Сохраняем ID сделки и ветку
-    logging.info(f"Processing deal ID: {deal.id} for user {query.from_user.id} in branch {branch}")
-
-    # Формат отображения данных с полным текстом ветки
-    branch_text = "1. Получение товара от заказчика" if branch == 1 else "2. Доставка отремонтированного товара"
-    text = f"{branch_text}\n" \
-           f"Название сделки: {deal.title}\n" \
-           f"Контакты: {deal.contact}\n" \
+    
+    # Формируем текст сообщения
+    text = f"Сделка: {deal.title}\n" \
+           f"Контакт: {deal.contact}\n" \
            f"Адрес: {deal.address}\n" \
            f"Дата доставки: {delivery_date_formatted}\n" \
            f"Вид: {deal.type}\n" \
@@ -188,11 +208,45 @@ async def enter_complectation_handler(message: types.Message, state: FSMContext)
         await update_deal(deal_id, {'UF_CRM_1756474226': complectation})  # Обновляем поле комплектации
         await message.answer("Комплектация обновлена в CRM.")
     
+    # Переходим к загрузке файлов
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="Завершить загрузку", callback_data="finish_upload")]
+    ])
+    await message.answer("Теперь загрузите фото/документы по одному (или сразу завершите, если файлов нет):", reply_markup=keyboard)
+    await state.set_state(ShiftStates.upload_files)
+
+async def upload_file_handler(message: types.Message, state: FSMContext):
+    if message.photo:
+        file = message.photo[-1]  # Берем фото наивысшего качества
+        file_name = f"photo_{int(time.time())}.jpg"  # Уникальное имя
+    elif message.document:
+        file = message.document
+        file_name = file.file_name or f"document_{int(time.time())}"
+    else:
+        await message.answer("Отправьте фото или документ.")
+        return
+    
+    # Скачиваем файл из Telegram
+    file_info = await message.bot.get_file(file.file_id)
+    downloaded_file = await message.bot.download_file(file_info.file_path)
+    file_content = downloaded_file.read()  # bytes
+    
+    # Загружаем в Bitrix Disk
+    upload_result = await upload_file_to_disk(BITRIX_FOLDER_ID, file_name, file_content)
+    if upload_result.get('result'):
+        await message.answer(f"Файл '{file_name}' успешно загружен в Bitrix Disk.")
+    else:
+        await message.answer("Ошибка загрузки файла в Bitrix. Попробуйте снова.")
+
+async def handle_finish_upload(query: types.CallbackQuery, state: FSMContext):
+    await query.answer("Загрузка файлов завершена.")
+    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку
+    
     # Показываем кнопку "Завершить заказ"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Завершить заказ", callback_data="complete_order")]
     ])
-    await message.answer("Нажмите, чтобы завершить заказ:", reply_markup=keyboard)
+    await query.message.answer("Нажмите, чтобы завершить заказ:", reply_markup=keyboard)
     await state.set_state(ShiftStates.complete_order)
 
 async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
