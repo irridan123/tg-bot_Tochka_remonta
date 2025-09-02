@@ -60,11 +60,11 @@ async def set_user_name(tg_id: int, name: str):
     save_user_data(USER_DATA)  # Сохраняем в файл
 
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
-    filter_params = {'UF_CRM_1756305557': user_id}  # Изменено: Фильтр по новому кастомному полю "Курьер"
+    filter_params = {'UF_CRM_1756808838': user_id}  # Изменено: Фильтр по новому кастомному полю "Курьер"
     if branch == 1:  # Ветка 1: Без даты доставки
-        filter_params['UF_CRM_1756191987'] = None  # null
+        filter_params['UF_CRM_1756808681'] = None  # null
     elif branch == 2:  # Ветка 2: С датой доставки
-        filter_params['!UF_CRM_1756191987'] = None  # not null
+        filter_params['!UF_CRM_1756808681'] = None  # not null
 
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"
@@ -73,11 +73,11 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
             'select': [
                 'ID', 
                 'TITLE', 
-                'UF_CRM_1756190928',   # Адрес
+                'UF_CRM_1755094712928',   # Адрес
                 'CONTACT_ID',          # ID контакта
-                'UF_CRM_1756191602',   # Вид техники (ID enum)
-                'UF_CRM_1756191922',   # Марка/модель
-                'UF_CRM_1756191987',   # Дата доставки
+                'UF_CRM_1747068372',   # Вид техники (ID enum)
+                'UF_CRM_1727124284490',   # Марка/модель
+                'UF_CRM_1756808681',   # Дата доставки
                 'OPPORTUNITY'          # Сумма сделки
             ]
         }

@@ -114,11 +114,11 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     contact_data = await get_contact_data(int(deal.get('CONTACT_ID', 0)))
     contact = f"{contact_data.get('NAME', '')} {contact_data.get('LAST_NAME', '')}".strip()
     phone = contact_data.get('PHONE', [{}])[0].get('VALUE', 'Нет') if contact_data.get('PHONE') else 'Нет'
-    type_id = deal.get('UF_CRM_1756191602')
-    type_text = await get_enum_text('UF_CRM_1756191602', type_id)
-    model = deal.get('UF_CRM_1756191922', 'Не указана')
-    address = deal.get('UF_CRM_1756190928', 'Не указан')
-    delivery_date = deal.get('UF_CRM_1756191987', 'Не указана')
+    type_id = deal.get('UF_CRM_1747068372')
+    type_text = await get_enum_text('UF_CRM_1747068372', type_id)
+    model = deal.get('UF_CRM_1727124284490', 'Не указана')
+    address = deal.get('UF_CRM_1755094712928', 'Не указан')
+    delivery_date = deal.get('UF_CRM_1756808681', 'Не указана')
     
     # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
@@ -165,7 +165,7 @@ async def update_model_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'UF_CRM_1756191922': message.text})  # Обновляем поле модели
+        await update_deal(deal_id, {'UF_CRM_1727124284490': message.text})  # Обновляем поле модели
         await message.answer("Марка/модель обновлена в CRM.")
     
     await message.answer("Введите комплектацию:")
@@ -176,7 +176,7 @@ async def enter_complectation_handler(message: types.Message, state: FSMContext)
     deal_id = data.get('deal_id')
     complectation = message.text.strip()
     if deal_id and complectation:
-        await update_deal(deal_id, {'UF_CRM_1756474226': complectation})  # Обновляем поле комплектации
+        await update_deal(deal_id, {'UF_CRM_1727124322720': complectation})  # Обновляем поле комплектации
         await message.answer("Комплектация обновлена в CRM.")
     
     # Переходим к загрузке файлов
@@ -211,7 +211,7 @@ async def upload_file_handler(message: types.Message, state: FSMContext):
             data = await state.get_data()
             deal_id = data.get('deal_id')
             if deal_id:
-                await add_link_to_deal_field(deal_id, 'UF_CRM_1756737862', file_url)
+                await add_link_to_deal_field(deal_id, 'UF_CRM_1756808993', file_url)
                 await message.answer(f"Файл '{file_name}' успешно загружен в Bitrix Disk и ссылка добавлена в сделку.")
             else:
                 await message.answer("Ошибка: ID сделки не найден.")
@@ -235,7 +235,7 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'STAGE_ID': 'EXECUTING'})  # Реальный ID стадии "Устройство в офисе"
+        await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})  # Реальный ID стадии "Устройство в офисе"
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
     await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку
     await state.clear()
@@ -280,9 +280,9 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
         new_amount = current_amount + amount  # Прибавляем введённую сумму
         # Обновляем стадию и сумму
         await update_deal(deal_id, {
-            'STAGE_ID': 'FINAL_INVOICE',  # Реальный ID стадии
+            'STAGE_ID': 'UC_I1EGHC',  # Реальный ID стадии
             'OPPORTUNITY': new_amount,  # Обновляем сумму сделки
-            'UF_CRM_1756360872': amount  # Присваиваем сумму в кастомное поле
+            'UF_CRM_1756810984': amount  # Присваиваем сумму в кастомное поле
         })
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
     await state.clear()
