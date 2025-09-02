@@ -4,6 +4,8 @@
 #   Восстановлен парсинг даты для delivery_date (UF_CRM_1756808681) без времени (используя datetime.fromisoformat и dt.date().isoformat()).
 #   Если дата не в ISO формате или парсинг не удался, она остаётся без изменений (с логом ошибки).
 #   Текст для branch==2 изменен обратно на "Дата доставки" для соответствия содержимому поля.
+#   Для контакта добавлено SECOND_NAME: contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
+#   Это включает отчество (SECOND_NAME), если оно есть; если нет, просто оставляем пустым (без None или лишних пробелов).
 # - Импорт добавлен: import json.
 # - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
 # - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field. (Примечание: В коде это 'UF_CRM_1756808993' — если это опечатка, исправьте на правильный код поля.)
@@ -115,7 +117,7 @@ async def handle_deal_choice(query: types.CallbackQuery, state: FSMContext):
 
 async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: dict, branch: int):
     contact_data = await get_contact_data(int(deal.get('CONTACT_ID', 0)))
-    contact = f"{contact_data.get('NAME', '')} {contact_data.get('LAST_NAME', '')}".strip()
+    contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
     phone = contact_data.get('PHONE', [{}])[0].get('VALUE', 'Нет') if contact_data.get('PHONE') else 'Нет'
     type_id = deal.get('UF_CRM_1747068372')
     type_text = await get_enum_text('UF_CRM_1747068372', type_id)

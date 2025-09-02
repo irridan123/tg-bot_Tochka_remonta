@@ -3,6 +3,7 @@
 # Функция получает текущее значение поля через crm.deal.get, добавляет новую ссылку и обновляет через crm.deal.update.
 # В upload_file_to_disk: Убедитесь, что ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
 # Если нужно другой URL, используйте disk.file.get с ID файла для получения.
+# Добавлено 'SECOND_NAME' в select для get_contact_data, чтобы получать отчество контакта.
 import aiohttp
 import json
 import os
@@ -140,7 +141,7 @@ async def get_contact_data(contact_id: int) -> dict:
         url = f"{BITRIX_CONTACT_WEBHOOK_URL}crm.contact.get"
         params = {
             'id': contact_id,
-            'select': ['NAME', 'LAST_NAME', 'PHONE', 'EMAIL']
+            'select': ['NAME', 'SECOND_NAME', 'LAST_NAME', 'PHONE', 'EMAIL']
         }
         try:
             async with session.post(url, json=params) as resp:
