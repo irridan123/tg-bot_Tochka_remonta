@@ -4,6 +4,7 @@
 # В upload_file_to_disk: Убедитесь, что ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
 # Если нужно другой URL, используйте disk.file.get с ID файла для получения.
 # Добавлено 'SECOND_NAME' в select для get_contact_data, чтобы получать отчество контакта.
+# Добавлено 'STAGE_ID' в select для get_deals_for_user, чтобы получать стадию сделки для проверки завершенности.
 import aiohttp
 import json
 import os
@@ -79,7 +80,8 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
                 'UF_CRM_1747068372',   # Вид техники (ID enum)
                 'UF_CRM_1727124284490',   # Марка/модель
                 'UF_CRM_1756808681',   # Дата доставки
-                'OPPORTUNITY'          # Сумма сделки
+                'OPPORTUNITY',         # Сумма сделки
+                'STAGE_ID'             # Стадия сделки (для проверки завершенности)
             ]
         }
         try:

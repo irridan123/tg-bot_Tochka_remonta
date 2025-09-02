@@ -6,6 +6,8 @@
 #   Текст для branch==2 изменен обратно на "Дата доставки" для соответствия содержимому поля.
 #   Для контакта добавлено SECOND_NAME: contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
 #   Это включает отчество (SECOND_NAME), если оно есть; если нет, просто оставляем пустым (без None или лишних пробелов).
+#   Добавлена проверка на завершенность сделки по STAGE_ID (для branch 1: 'PREPARATION', для branch 2: 'UC_I1EGHC'). Если завершена, добавляем '✅ ' перед TITLE в text.
+# - В handle_branch_choice: При создании клавиатуры для выбора сделок (если несколько), добавляем '✅ ' перед TITLE кнопки, если сделка завершена (по той же логике STAGE_ID).
 # - Импорт добавлен: import json.
 # - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
 # - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field. (Примечание: В коде это 'UF_CRM_1756808993' — если это опечатка, исправьте на правильный код поля.)
@@ -95,11 +97,14 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
         # Если одна сделка, сразу показываем данные
         await show_deal_data(query, state, deals[0], branch)
     else:
-        # Если несколько, показываем список для выбора
+        # Если несколько, показываем список для выбора с галочкой для завершённых
         text = "Выберите сделку:"
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text=deal['TITLE'], callback_data=f"deal_{deal['ID']}")] for deal in deals
-        ])
+        inline_keyboard = []
+        for deal in deals:
+            is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
+            button_text = ('✅ ' if is_completed else '') + deal['TITLE']
+            inline_keyboard.append([types.InlineKeyboardButton(text=button_text, callback_data=f"deal_{deal['ID']}")])
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
         await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.choose_deal)
         await state.update_data(branch=branch, deals=deals)
@@ -143,7 +148,11 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
             logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
             # Оставляем как есть, если парсинг не удался
     
-    text = f"Сделка: {deal['TITLE']}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}"
+    # Проверяем, завершена ли сделка
+    is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
+    title = ('✅ ' if is_completed else '') + deal['TITLE']
+    
+    text = f"Сделка: {title}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}"
     if branch == 2:
         text += f"\nДата доставки: {delivery_date}"
     
