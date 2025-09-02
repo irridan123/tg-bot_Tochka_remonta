@@ -1,10 +1,10 @@
 # Файл: handlers.py
 # Изменения: 
-# - В show_deal_data: Удалена строка с email из текста сообщения.
-# - Добавлена условная проверка для даты доставки: отображается только если branch == 2.
+# - В show_deal_data: Добавлено форматирование даты доставки без времени (используя datetime.fromisoformat и dt.date().isoformat()).
+#   Если дата не в ISO формате или парсинг не удался, она остаётся без изменений (с логом ошибки).
+# - Импорт добавлен: from datetime import datetime.
 # - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
 # - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field.
-# - Импорт обновлён: Добавлен add_link_to_deal_field из bitrix_api.
 # - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
@@ -15,6 +15,7 @@ from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_c
 from config import MANAGER_TG_ID, BITRIX_FOLDER_ID
 from models import Deal
 from states import ShiftStates
+from datetime import datetime  # Новый импорт для форматирования даты
 import logging
 import time  # Для генерации уникальных имен файлов, если нужно
 
@@ -118,6 +119,15 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     model = deal.get('UF_CRM_1756191922', 'Не указана')
     address = deal.get('UF_CRM_1756190928', 'Не указан')
     delivery_date = deal.get('UF_CRM_1756191987', 'Не указана')
+    
+    # Форматируем дату доставки без времени (только для ветки 2)
+    if branch == 2 and delivery_date != 'Не указана':
+        try:
+            dt = datetime.fromisoformat(delivery_date)
+            delivery_date = dt.date().isoformat()
+        except ValueError as e:
+            logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
+            # Оставляем как есть, если парсинг не удался
     
     text = f"Сделка: {deal['TITLE']}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}"
     if branch == 2:
