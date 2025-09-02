@@ -1,10 +1,12 @@
 # Файл: handlers.py
 # Изменения: 
-# - В show_deal_data: Добавлено форматирование даты доставки без времени (используя datetime.fromisoformat и dt.date().isoformat()).
+# - В show_deal_data: Добавлен парсинг JSON для поля address (UF_CRM_1755094712928), чтобы извлекать значение из ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
+#   Восстановлен парсинг даты для delivery_date (UF_CRM_1756808681) без времени (используя datetime.fromisoformat и dt.date().isoformat()).
 #   Если дата не в ISO формате или парсинг не удался, она остаётся без изменений (с логом ошибки).
-# - Импорт добавлен: from datetime import datetime.
+#   Текст для branch==2 изменен обратно на "Дата доставки" для соответствия содержимому поля.
+# - Импорт добавлен: import json.
 # - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
-# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field.
+# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field. (Примечание: В коде это 'UF_CRM_1756808993' — если это опечатка, исправьте на правильный код поля.)
 # - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
@@ -18,6 +20,7 @@ from states import ShiftStates
 from datetime import datetime  # Новый импорт для форматирования даты
 import logging
 import time  # Для генерации уникальных имен файлов, если нужно
+import json  # Новый импорт для парсинга JSON
 
 def setup_handlers(dp: Dispatcher):
     dp.message.register(start_handler, Command('start'))  # Handler для /start
@@ -119,6 +122,15 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     model = deal.get('UF_CRM_1727124284490', 'Не указана')
     address = deal.get('UF_CRM_1755094712928', 'Не указан')
     delivery_date = deal.get('UF_CRM_1756808681', 'Не указана')
+    
+    # Парсим JSON для адреса (UF_CRM_1755094712928)
+    if address != 'Не указан':
+        try:
+            addr_data = json.loads(address)
+            address = addr_data.get('address', address)
+        except (json.JSONDecodeError, TypeError) as e:
+            logging.error(f"Error parsing address JSON: {e}. Keeping original: {address}")
+            # Оставляем как есть, если парсинг не удался
     
     # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
