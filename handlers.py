@@ -1,8 +1,8 @@
 # Файл: handlers.py
 # Изменения: 
-# - В enter_reject_comment_handler: Для ветки 1 (branch == 1) добавлено обновление стадии сделки на 'UC_O7XQVC' при отказе (после отправки уведомления менеджеру).
-#   Это реализует функцию возврата сделки на указанную стадию при отказе в ветке 1.
-#   deal_id извлекается из state.get_data(), и вызывается update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'}).
+# - В enter_reject_comment_handler: Для ветки 2 (branch == 2) добавлено обновление стадии сделки на 'EXECUTING' при отказе (после отправки уведомления менеджеру).
+#   Это реализует функцию возврата сделки на указанную стадию при отказе в ветке 2.
+#   deal_id извлекается из state.get_data(), и вызывается update_deal(deal_id, {'STAGE_ID': 'EXECUTING'}).
 # - В show_deal_data: Поле адреса UF_CRM_1747140776508 с парсингом JSON для ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
 #   Парсинг даты для delivery_date (UF_CRM_1756808681) без времени.
 #   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [NAME, SECOND_NAME, LAST_NAME] if part]).strip()
@@ -262,7 +262,7 @@ async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext)
 async def enter_reject_comment_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     branch = data.get('branch')
-    deal_id = data.get('deal_id')  # Извлекаем deal_id для обновления стадии
+    deal_id = data.get('deal_id')
     comment = message.text.strip()
     user_id = message.from_user.id
     user_name = await get_user_name_by_tg(user_id)
@@ -275,9 +275,11 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
     await message.bot.send_message(MANAGER_TG_ID, notification)
     await message.answer("Отказ подтверждён. Уведомление отправлено руководителю.")
     
-    # Для ветки 1: Возврат сделки на стадию 'UC_O7XQVC'
     if branch == 1 and deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'})
+    
+    if branch == 2 and deal_id:
+        await update_deal(deal_id, {'STAGE_ID': 'EXECUTING'})
     
     await state.clear()
 
