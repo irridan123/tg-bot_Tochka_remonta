@@ -1,10 +1,10 @@
 # Файл: bitrix_api.py
 # Изменения: 
-# - В get_deals_for_user: Изменено поле адреса с UF_CRM_1755094712928 на UF_CRM_1747140776508 в списке select для соответствия новому коду поля.
-# - Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756808993. (Примечание: В исходном коде используется UF_CRM_1756808993, хотя ранее упоминалось UF_CRM_1756737862 — если это ошибка, исправьте в handlers.py в upload_file_handler.)
-# - В upload_file_to_disk: Ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
-# - Добавлено 'SECOND_NAME' в select для get_contact_data, чтобы получать отчество контакта.
-# - Добавлено 'STAGE_ID' в select для get_deals_for_user, чтобы получать стадию сделки для проверки завершенности.
+# - В get_deals_for_user: Поле адреса UF_CRM_1747140776508 в select.
+# - Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756808993.
+# - В upload_file_to_disk: Ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL'.
+# - Добавлено 'SECOND_NAME' в select для get_contact_data.
+# - Добавлено 'STAGE_ID' в select для get_deals_for_user.
 import aiohttp
 import json
 import os
@@ -71,7 +71,7 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
             'select': [
                 'ID',
                 'TITLE',
-                'UF_CRM_1747140776508',  # Изменено поле адреса
+                'UF_CRM_1747140776508',
                 'CONTACT_ID',
                 'UF_CRM_1747068372',
                 'UF_CRM_1727124284490',

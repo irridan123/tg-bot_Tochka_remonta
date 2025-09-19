@@ -1,17 +1,15 @@
 # Файл: handlers.py
 # Изменения: 
-# - В show_deal_data: Изменено поле адреса с UF_CRM_1755094712928 на UF_CRM_1747140776508 для соответствия новому коду поля.
-#   Добавлен парсинг JSON для нового поля адреса (UF_CRM_1747140776508), чтобы извлекать значение из ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
-#   Восстановлен парсинг даты для delivery_date (UF_CRM_1756808681) без времени (используя datetime.fromisoformat и dt.date().isoformat()).
-#   Если дата не в ISO формате или парсинг не удался, она остаётся без изменений (с логом ошибки).
-#   Текст для branch==2 оставлен как "Дата доставки" для соответствия содержимому поля.
-#   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
-#   Это включает отчество (SECOND_NAME), если оно есть; если нет, просто оставляем пустым (без None или лишних пробелов).
-#   Добавлена проверка на завершенность сделки по STAGE_ID (для branch 1: 'PREPARATION', для branch 2: 'UC_I1EGHC'). Если завершена, добавляем '✅ ' перед TITLE в text.
-# - В handle_branch_choice: При создании клавиатуры для выбора сделок (если несколько), добавляем '✅ ' перед TITLE кнопки, если сделка завершена (по той же логике STAGE_ID).
-# - Импорт: Оставлен import json для парсинга JSON.
-# - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
-# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756808993 через функцию add_link_to_deal_field. (Примечание: В исходном коде указано UF_CRM_1756808993, хотя в комментариях упоминалось UF_CRM_1756737862 — если это опечатка, исправьте на правильный код поля в add_link_to_deal_field.)
+# - В enter_reject_comment_handler: Для ветки 1 (branch == 1) добавлено обновление стадии сделки на 'UC_O7XQVC' при отказе (после отправки уведомления менеджеру).
+#   Это реализует функцию возврата сделки на указанную стадию при отказе в ветке 1.
+#   deal_id извлекается из state.get_data(), и вызывается update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'}).
+# - В show_deal_data: Поле адреса UF_CRM_1747140776508 с парсингом JSON для ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
+#   Парсинг даты для delivery_date (UF_CRM_1756808681) без времени.
+#   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [NAME, SECOND_NAME, LAST_NAME] if part]).strip()
+#   Проверка завершенности сделки по STAGE_ID ('PREPARATION' для branch 1, 'UC_I1EGHC' для branch 2) с добавлением '✅ ' перед TITLE.
+# - В handle_branch_choice: Для списка сделок добавляем '✅ ' перед TITLE, если завершена.
+# - Импорт: import json для парсинга JSON.
+# - В upload_file_handler: Добавление URL в поле UF_CRM_1756808993.
 # - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
@@ -124,10 +122,9 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     type_id = deal.get('UF_CRM_1747068372')
     type_text = await get_enum_text('UF_CRM_1747068372', type_id)
     model = deal.get('UF_CRM_1727124284490', 'Не указана')
-    address = deal.get('UF_CRM_1747140776508', 'Не указан')  # Изменено поле адреса
+    address = deal.get('UF_CRM_1747140776508', 'Не указан')
     delivery_date = deal.get('UF_CRM_1756808681', 'Не указана')
     
-    # Парсим JSON для адреса (UF_CRM_1747140776508)
     if address != 'Не указан':
         try:
             addr_data = json.loads(address)
@@ -135,7 +132,6 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except (json.JSONDecodeError, TypeError) as e:
             logging.error(f"Error parsing address JSON: {e}. Keeping original: {address}")
     
-    # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
         try:
             dt = datetime.fromisoformat(delivery_date)
@@ -143,7 +139,6 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except ValueError as e:
             logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
     
-    # Проверяем, завершена ли сделка
     is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
     title = ('✅ ' if is_completed else '') + deal['TITLE']
     
@@ -267,6 +262,7 @@ async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext)
 async def enter_reject_comment_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     branch = data.get('branch')
+    deal_id = data.get('deal_id')  # Извлекаем deal_id для обновления стадии
     comment = message.text.strip()
     user_id = message.from_user.id
     user_name = await get_user_name_by_tg(user_id)
@@ -278,6 +274,11 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
         notification += f" Комментарий: {comment}"
     await message.bot.send_message(MANAGER_TG_ID, notification)
     await message.answer("Отказ подтверждён. Уведомление отправлено руководителю.")
+    
+    # Для ветки 1: Возврат сделки на стадию 'UC_O7XQVC'
+    if branch == 1 and deal_id:
+        await update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'})
+    
     await state.clear()
 
 async def enter_amount_handler(message: types.Message, state: FSMContext):
