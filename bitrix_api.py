@@ -1,10 +1,10 @@
 # Файл: bitrix_api.py
-# Изменения: Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756737862.
-# Функция получает текущее значение поля через crm.deal.get, добавляет новую ссылку и обновляет через crm.deal.update.
-# В upload_file_to_disk: Убедитесь, что ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
-# Если нужно другой URL, используйте disk.file.get с ID файла для получения.
-# Добавлено 'SECOND_NAME' в select для get_contact_data, чтобы получать отчество контакта.
-# Добавлено 'STAGE_ID' в select для get_deals_for_user, чтобы получать стадию сделки для проверки завершенности.
+# Изменения: 
+# - В get_deals_for_user: Изменено поле адреса с UF_CRM_1755094712928 на UF_CRM_1747140776508 в списке select для соответствия новому коду поля.
+# - Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756808993. (Примечание: В исходном коде используется UF_CRM_1756808993, хотя ранее упоминалось UF_CRM_1756737862 — если это ошибка, исправьте в handlers.py в upload_file_handler.)
+# - В upload_file_to_disk: Ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL' (по документации — да).
+# - Добавлено 'SECOND_NAME' в select для get_contact_data, чтобы получать отчество контакта.
+# - Добавлено 'STAGE_ID' в select для get_deals_for_user, чтобы получать стадию сделки для проверки завершенности.
 import aiohttp
 import json
 import os
@@ -12,27 +12,24 @@ from config import BITRIX_DEAL_WEBHOOK_URL, BITRIX_CONTACT_WEBHOOK_URL, BITRIX_D
 import logging
 import base64
 
-# Путь к JSON-файлу для хранения данных курьеров
 USER_DATA_FILE = 'user_data.json'
 
-# Загрузка USER_DATA из JSON при запуске
 def load_user_data():
     if os.path.exists(USER_DATA_FILE):
         try:
             with open(USER_DATA_FILE, 'r') as f:
-                content = f.read().strip()  # Удаляем пробелы
-                if not content:  # Если файл пуст
-                    return {}  # Возвращаем пустой dict
+                content = f.read().strip()
+                if not content:
+                    return {}
                 return json.loads(content)
         except json.JSONDecodeError as e:
             logging.error(f"JSON decode error in {USER_DATA_FILE}: {e}")
-            return {}  # Возвращаем пустой dict при ошибке
+            return {}
         except Exception as e:
             logging.error(f"Error loading {USER_DATA_FILE}: {e}")
             return {}
-    return {}  # Если файла нет, пустой dict
+    return {}
 
-# Сохранение USER_DATA в JSON
 def save_user_data(user_data):
     try:
         with open(USER_DATA_FILE, 'w') as f:
@@ -40,10 +37,10 @@ def save_user_data(user_data):
     except Exception as e:
         logging.error(f"Error saving {USER_DATA_FILE}: {e}")
 
-USER_DATA = load_user_data()  # Загружаем при старте
+USER_DATA = load_user_data()
 
 async def get_user_id_by_tg(tg_id: int) -> int | None:
-    tg_str = str(tg_id)  # Ключи в JSON как строки
+    tg_str = str(tg_id)
     user = USER_DATA.get(tg_str)
     return user.get('bitrix_id') if user else None
 
@@ -57,31 +54,30 @@ async def set_user_name(tg_id: int, name: str):
     if tg_str in USER_DATA:
         USER_DATA[tg_str]['name'] = name
     else:
-        # Если новый пользователь, добавляем с placeholder bitrix_id (замените на реальный)
-        USER_DATA[tg_str] = {'bitrix_id': None, 'name': name}  # Если bitrix_id неизвестен, обновите вручную
-    save_user_data(USER_DATA)  # Сохраняем в файл
+        USER_DATA[tg_str] = {'bitrix_id': None, 'name': name}
+    save_user_data(USER_DATA)
 
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
-    filter_params = {'UF_CRM_1756808838': user_id}  # Изменено: Фильтр по новому кастомному полю "Курьер"
-    if branch == 1:  # Ветка 1: Без даты доставки
-        filter_params['UF_CRM_1756808681'] = None  # null
-    elif branch == 2:  # Ветка 2: С датой доставки
-        filter_params['!UF_CRM_1756808681'] = None  # not null
+    filter_params = {'UF_CRM_1756808838': user_id}
+    if branch == 1:
+        filter_params['UF_CRM_1756808681'] = None
+    elif branch == 2:
+        filter_params['!UF_CRM_1756808681'] = None
 
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"
         params = {
             'filter': filter_params,
             'select': [
-                'ID', 
-                'TITLE', 
-                'UF_CRM_1755094712928',   # Адрес
-                'CONTACT_ID',          # ID контакта
-                'UF_CRM_1747068372',   # Вид техники (ID enum)
-                'UF_CRM_1727124284490',   # Марка/модель
-                'UF_CRM_1756808681',   # Дата доставки
-                'OPPORTUNITY',         # Сумма сделки
-                'STAGE_ID'             # Стадия сделки (для проверки завершенности)
+                'ID',
+                'TITLE',
+                'UF_CRM_1747140776508',  # Изменено поле адреса
+                'CONTACT_ID',
+                'UF_CRM_1747068372',
+                'UF_CRM_1727124284490',
+                'UF_CRM_1756808681',
+                'OPPORTUNITY',
+                'STAGE_ID'
             ]
         }
         try:
@@ -94,12 +90,11 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
             return []
 
 async def get_deal_amount(deal_id: int) -> float:
-    """Получает текущую сумму сделки ('OPPORTUNITY') из Bitrix24."""
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.get"
         params = {
             'id': deal_id,
-            'select': ['OPPORTUNITY']  # Сумма сделки
+            'select': ['OPPORTUNITY']
         }
         try:
             async with session.post(url, json=params) as resp:
@@ -112,7 +107,6 @@ async def get_deal_amount(deal_id: int) -> float:
             return 0.0
 
 async def get_deal_field(deal_id: int, field_name: str) -> list:
-    """Получает значение пользовательского поля из сделки."""
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.get"
         params = {
@@ -130,9 +124,8 @@ async def get_deal_field(deal_id: int, field_name: str) -> list:
             return []
 
 async def add_link_to_deal_field(deal_id: int, field_name: str, new_link: str):
-    """Добавляет ссылку в множественное поле сделки."""
     current_links = await get_deal_field(deal_id, field_name)
-    current_links.append(new_link)  # Добавляем новую ссылку
+    current_links.append(new_link)
     fields = {field_name: current_links}
     await update_deal(deal_id, fields)
 
@@ -155,13 +148,12 @@ async def get_contact_data(contact_id: int) -> dict:
             return {}
 
 async def get_enum_text(field_code: str, value_id: str) -> str:
-    """Получает текст значения для списочного (enum) поля по ID."""
     if not value_id:
         return "Неизвестно"
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_USERFIELD_WEBHOOK_URL}crm.deal.userfield.list"
         params = {
-            'filter': {'FIELD_NAME': field_code}  # Фильтр по коду поля
+            'filter': {'FIELD_NAME': field_code}
         }
         try:
             async with session.post(url, json=params) as resp:
@@ -170,16 +162,16 @@ async def get_enum_text(field_code: str, value_id: str) -> str:
                 fields = data.get('result', [])
                 if not fields:
                     logging.debug(f"No fields found for code: {field_code}")
-                    return value_id  # Если поле не найдено
-                enum_list = fields[0].get('LIST', [])  # Исправлено: 'LIST' вместо 'ENUM'
+                    return value_id
+                enum_list = fields[0].get('LIST', [])
                 logging.debug(f"Enum list for field {field_code}: {enum_list}")
                 for item in enum_list:
                     if item.get('ID') == value_id:
                         value_text = item.get('VALUE', value_id)
                         logging.debug(f"Found value: {value_text} for ID {value_id}")
-                        return value_text  # Возвращаем текст или ID если не найдено
+                        return value_text
                 logging.debug(f"No matching ID {value_id} in enum list")
-                return value_id  # Если не найдено, возвращаем ID
+                return value_id
         except Exception as e:
             logging.error(f"Bitrix userfield API error: {e}")
             return value_id
@@ -196,7 +188,6 @@ async def update_deal(deal_id: int, fields: dict):
             return {}
 
 async def upload_file_to_disk(folder_id: int, file_name: str, file_content: bytes) -> dict:
-    """Загружает файл в папку Bitrix24 Disk с использованием disk.folder.uploadfile."""
     base64_content = base64.b64encode(file_content).decode('utf-8')
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DISK_WEBHOOK_URL}disk.folder.uploadfile"

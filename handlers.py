@@ -1,48 +1,49 @@
 # Файл: handlers.py
 # Изменения: 
-# - В show_deal_data: Добавлен парсинг JSON для поля address (UF_CRM_1755094712928), чтобы извлекать значение из ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
+# - В show_deal_data: Изменено поле адреса с UF_CRM_1755094712928 на UF_CRM_1747140776508 для соответствия новому коду поля.
+#   Добавлен парсинг JSON для нового поля адреса (UF_CRM_1747140776508), чтобы извлекать значение из ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
 #   Восстановлен парсинг даты для delivery_date (UF_CRM_1756808681) без времени (используя datetime.fromisoformat и dt.date().isoformat()).
 #   Если дата не в ISO формате или парсинг не удался, она остаётся без изменений (с логом ошибки).
-#   Текст для branch==2 изменен обратно на "Дата доставки" для соответствия содержимому поля.
-#   Для контакта добавлено SECOND_NAME: contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
+#   Текст для branch==2 оставлен как "Дата доставки" для соответствия содержимому поля.
+#   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [contact_data.get('NAME', ''), contact_data.get('SECOND_NAME', ''), contact_data.get('LAST_NAME', '')] if part]).strip()
 #   Это включает отчество (SECOND_NAME), если оно есть; если нет, просто оставляем пустым (без None или лишних пробелов).
 #   Добавлена проверка на завершенность сделки по STAGE_ID (для branch 1: 'PREPARATION', для branch 2: 'UC_I1EGHC'). Если завершена, добавляем '✅ ' перед TITLE в text.
 # - В handle_branch_choice: При создании клавиатуры для выбора сделок (если несколько), добавляем '✅ ' перед TITLE кнопки, если сделка завершена (по той же логике STAGE_ID).
-# - Импорт добавлен: import json.
+# - Импорт: Оставлен import json для парсинга JSON.
 # - В upload_file_handler: После загрузки файла, извлекаем URL (DETAIL_URL) из ответа.
-# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756737862 через новую функцию add_link_to_deal_field. (Примечание: В коде это 'UF_CRM_1756808993' — если это опечатка, исправьте на правильный код поля.)
+# - Если загрузка успешна, добавляем URL в поле UF_CRM_1756808993 через функцию add_link_to_deal_field. (Примечание: В исходном коде указано UF_CRM_1756808993, хотя в комментариях упоминалось UF_CRM_1756737862 — если это опечатка, исправьте на правильный код поля в add_link_to_deal_field.)
 # - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.filters.command import Command
 from aiogram.types import ContentType
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, add_link_to_deal_field  # Новый импорт: add_link_to_deal_field
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, add_link_to_deal_field
 from config import MANAGER_TG_ID, BITRIX_FOLDER_ID
 from models import Deal
 from states import ShiftStates
-from datetime import datetime  # Новый импорт для форматирования даты
+from datetime import datetime
 import logging
-import time  # Для генерации уникальных имен файлов, если нужно
-import json  # Новый импорт для парсинга JSON
+import time
+import json
 
 def setup_handlers(dp: Dispatcher):
-    dp.message.register(start_handler, Command('start'))  # Handler для /start
+    dp.message.register(start_handler, Command('start'))
     dp.message.register(start_shift, Command('start_shift'))
-    dp.message.register(set_name_handler, Command('set_name'))  # Handler для /set_name
-    dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)  # Handler для выбора ветки
-    dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal)  # Handler для выбора сделки
+    dp.message.register(set_name_handler, Command('set_name'))
+    dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)
+    dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal)
     dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
     dp.message.register(update_model_handler, ShiftStates.update_model)
-    dp.message.register(enter_complectation_handler, ShiftStates.enter_complectation)  # Новый handler для комплектации
-    dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)  # Новый: Handler для загрузки файлов (исправлено с magic filters)
-    dp.callback_query.register(handle_finish_upload, lambda query: query.data == "finish_upload")  # Новый: Завершить загрузку
-    dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)  # Handler для завершения заказа
+    dp.message.register(enter_complectation_handler, ShiftStates.enter_complectation)
+    dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)
+    dp.callback_query.register(handle_finish_upload, lambda query: query.data == "finish_upload")
+    dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)
     dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
-    dp.message.register(enter_reject_comment_handler, ShiftStates.enter_reject_comment)  # Handler для комментария при отказе
-    dp.message.register(enter_name_handler, ShiftStates.enter_name)  # Handler для ввода имени
-    dp.callback_query.register(handle_return_to_menu, lambda query: query.data == "return_to_menu")  # Handler для "Вернуться"
+    dp.message.register(enter_reject_comment_handler, ShiftStates.enter_reject_comment)
+    dp.message.register(enter_name_handler, ShiftStates.enter_name)
+    dp.callback_query.register(handle_return_to_menu, lambda query: query.data == "return_to_menu")
 
 async def start_handler(message: types.Message):
     await message.answer("Добро пожаловать в бота для курьеров! Чтобы начать смену, используйте команду /start_shift.")
@@ -66,12 +67,10 @@ async def start_shift(message: types.Message, state: FSMContext):
     if not user_id:
         await message.answer("Вы не авторизованы. Добавьте свой ID в маппинг.")
         return
-    # Запрашиваем количество сделок для каждой ветки
     deals_branch1 = await get_deals_for_user(user_id, 1)
     deals_branch2 = await get_deals_for_user(user_id, 2)
     count1 = len(deals_branch1)
     count2 = len(deals_branch2)
-    # Показываем кнопки выбора ветки с количеством
     text = "Выберите тип смены:"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=f"1. Получение товара от заказчика ({count1} сделок)", callback_data="branch_1")],
@@ -82,7 +81,7 @@ async def start_shift(message: types.Message, state: FSMContext):
 
 async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
     branch = 1 if query.data == "branch_1" else 2
-    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+    await query.message.edit_reply_markup(reply_markup=None)
     await query.answer(f"Выбрана ветка {branch}.")
     user_id = await get_user_id_by_tg(query.from_user.id)
     deals = await get_deals_for_user(user_id, branch)
@@ -92,12 +91,10 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
             [types.InlineKeyboardButton(text="Вернуться", callback_data="return_to_menu")]
         ])
         await query.message.answer(text, reply_markup=keyboard)
-        return  # Не очищаем состояние, чтобы обработать "Вернуться"
+        return
     if len(deals) == 1:
-        # Если одна сделка, сразу показываем данные
         await show_deal_data(query, state, deals[0], branch)
     else:
-        # Если несколько, показываем список для выбора с галочкой для завершённых
         text = "Выберите сделку:"
         inline_keyboard = []
         for deal in deals:
@@ -127,17 +124,16 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     type_id = deal.get('UF_CRM_1747068372')
     type_text = await get_enum_text('UF_CRM_1747068372', type_id)
     model = deal.get('UF_CRM_1727124284490', 'Не указана')
-    address = deal.get('UF_CRM_1755094712928', 'Не указан')
+    address = deal.get('UF_CRM_1747140776508', 'Не указан')  # Изменено поле адреса
     delivery_date = deal.get('UF_CRM_1756808681', 'Не указана')
     
-    # Парсим JSON для адреса (UF_CRM_1755094712928)
+    # Парсим JSON для адреса (UF_CRM_1747140776508)
     if address != 'Не указан':
         try:
             addr_data = json.loads(address)
             address = addr_data.get('address', address)
         except (json.JSONDecodeError, TypeError) as e:
             logging.error(f"Error parsing address JSON: {e}. Keeping original: {address}")
-            # Оставляем как есть, если парсинг не удался
     
     # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
@@ -146,7 +142,6 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
             delivery_date = dt.date().isoformat()
         except ValueError as e:
             logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
-            # Оставляем как есть, если парсинг не удался
     
     # Проверяем, завершена ли сделка
     is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
@@ -176,11 +171,11 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
     if query.data == "accept_pickup":
         await query.answer("Забор подтверждён.")
-        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+        await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer("Введите марку/модель (если нужно обновить):")
         await state.set_state(ShiftStates.update_model)
     else:
-        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+        await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer("Введите комментарий к отказу:")
         await state.set_state(ShiftStates.enter_reject_comment)
 
@@ -188,7 +183,7 @@ async def update_model_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'UF_CRM_1727124284490': message.text})  # Обновляем поле модели
+        await update_deal(deal_id, {'UF_CRM_1727124284490': message.text})
         await message.answer("Марка/модель обновлена в CRM.")
     
     await message.answer("Введите комплектацию:")
@@ -199,10 +194,9 @@ async def enter_complectation_handler(message: types.Message, state: FSMContext)
     deal_id = data.get('deal_id')
     complectation = message.text.strip()
     if deal_id and complectation:
-        await update_deal(deal_id, {'UF_CRM_1727124322720': complectation})  # Обновляем поле комплектации
+        await update_deal(deal_id, {'UF_CRM_1727124322720': complectation})
         await message.answer("Комплектация обновлена в CRM.")
     
-    # Переходим к загрузке файлов
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Завершить загрузку", callback_data="finish_upload")]
     ])
@@ -211,8 +205,8 @@ async def enter_complectation_handler(message: types.Message, state: FSMContext)
 
 async def upload_file_handler(message: types.Message, state: FSMContext):
     if message.photo:
-        file = message.photo[-1]  # Берем фото наивысшего качества
-        file_name = f"photo_{int(time.time())}.jpg"  # Уникальное имя
+        file = message.photo[-1]
+        file_name = f"photo_{int(time.time())}.jpg"
     elif message.document:
         file = message.document
         file_name = file.file_name or f"document_{int(time.time())}"
@@ -220,15 +214,12 @@ async def upload_file_handler(message: types.Message, state: FSMContext):
         await message.answer("Отправьте фото или документ.")
         return
     
-    # Скачиваем файл из Telegram
     file_info = await message.bot.get_file(file.file_id)
     downloaded_file = await message.bot.download_file(file_info.file_path)
-    file_content = downloaded_file.read()  # bytes
+    file_content = downloaded_file.read()
     
-    # Загружаем в Bitrix Disk
     upload_result = await upload_file_to_disk(BITRIX_FOLDER_ID, file_name, file_content)
     if upload_result.get('result'):
-        # Извлекаем URL файла (используем DETAIL_URL; если нужно DOWNLOAD_URL, замените)
         file_url = upload_result['result'].get('DETAIL_URL')
         if file_url:
             data = await state.get_data()
@@ -245,9 +236,8 @@ async def upload_file_handler(message: types.Message, state: FSMContext):
 
 async def handle_finish_upload(query: types.CallbackQuery, state: FSMContext):
     await query.answer("Загрузка файлов завершена.")
-    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку
+    await query.message.edit_reply_markup(reply_markup=None)
     
-    # Показываем кнопку "Завершить заказ"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text="Завершить заказ", callback_data="complete_order")]
     ])
@@ -258,19 +248,19 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})  # Реальный ID стадии "Устройство в офисе"
+        await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
-    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку
+    await query.message.edit_reply_markup(reply_markup=None)
     await state.clear()
 
 async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext):
     if query.data == "accept_delivery":
         await query.answer("Заявка принята.")
-        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+        await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer("После доставки введите сумму в рублях:")
         await state.set_state(ShiftStates.enter_amount)
     else:
-        await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопки
+        await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer("Введите комментарий к отказу:")
         await state.set_state(ShiftStates.enter_reject_comment)
 
@@ -279,7 +269,7 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
     branch = data.get('branch')
     comment = message.text.strip()
     user_id = message.from_user.id
-    user_name = await get_user_name_by_tg(user_id)  # Получаем имя курьера
+    user_name = await get_user_name_by_tg(user_id)
     if branch == 1:
         notification = f"Курьер {user_name} ({user_id}) не подтвердил заказ (Ветка 1)."
     else:
@@ -299,19 +289,18 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     if deal_id:
-        current_amount = await get_deal_amount(deal_id)  # Получаем текущую сумму
-        new_amount = current_amount + amount  # Прибавляем введённую сумму
-        # Обновляем стадию и сумму
+        current_amount = await get_deal_amount(deal_id)
+        new_amount = current_amount + amount
         await update_deal(deal_id, {
-            'STAGE_ID': 'UC_I1EGHC',  # Реальный ID стадии
-            'OPPORTUNITY': new_amount,  # Обновляем сумму сделки
-            'UF_CRM_1756810984': amount  # Присваиваем сумму в кастомное поле
+            'STAGE_ID': 'UC_I1EGHC',
+            'OPPORTUNITY': new_amount,
+            'UF_CRM_1756810984': amount
         })
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
     await state.clear()
 
 async def handle_return_to_menu(query: types.CallbackQuery, state: FSMContext):
-    await query.message.edit_reply_markup(reply_markup=None)  # Удаляем кнопку "Вернуться"
+    await query.message.edit_reply_markup(reply_markup=None)
     await query.answer("Возвращаемся к выбору смены.")
     text = "Выберите тип смены:"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
