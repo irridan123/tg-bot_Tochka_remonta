@@ -1,3 +1,14 @@
+# Файл: handlers.py
+# Изменения: 
+# - В show_deal_data: Поле адреса UF_CRM_1747140776508 с парсингом JSON для ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
+#   Парсинг даты для delivery_date (UF_CRM_1756808681) без времени для ветки 2.
+#   Парсинг даты для pickup_date (UF_CRM_1758315289607) без времени для обеих веток.
+#   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [NAME, SECOND_NAME, LAST_NAME] if part]).strip()
+#   Проверка завершенности сделки по STAGE_ID ('PREPARATION' для branch 1, 'UC_I1EGHC' для branch 2) с добавлением '✅ ' перед TITLE.
+# - В handle_branch_choice: Для списка сделок добавляем '✅ ' перед TITLE, если завершена.
+# - Импорт: import json для парсинга JSON.
+# - В upload_file_handler: Добавление URL в поле UF_CRM_1756808993.
+# - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.filters.command import Command

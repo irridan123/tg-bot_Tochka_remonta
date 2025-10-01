@@ -1,3 +1,13 @@
+# Файл: bitrix_api.py
+# Изменения: 
+# - В get_deals_for_user: Для ветки 1 добавлен фильтр STAGE_ID='UC_GDXHB8' (Назначена курьеру).
+#   Для ветки 2 STAGE_ID='UC_W02MYL' (из предыдущих изменений).
+# - Поле адреса UF_CRM_1747140776508 в select.
+# - Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756808993.
+# - В upload_file_to_disk: Ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL'.
+# - Добавлено 'SECOND_NAME' в select для get_contact_data.
+# - Добавлено 'STAGE_ID' в select для get_deals_for_user.
+# - Добавлено поле UF_CRM_1758315289607 (Дата забора) в select.
 import aiohttp
 import json
 import os
@@ -54,9 +64,10 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
     filter_params = {'UF_CRM_1756808838': user_id}
     if branch == 1:
         filter_params['UF_CRM_1756808681'] = None
+        filter_params['STAGE_ID'] = 'UC_GDXHB8'  # Фильтр по стадии "Назначена курьеру" для ветки 1
     elif branch == 2:
         filter_params['!UF_CRM_1756808681'] = None
-        filter_params['STAGE_ID'] = 'UC_W02MYL'  # Изменено на правильный STAGE_ID "Назначена курьеру"
+        filter_params['STAGE_ID'] = 'UC_W02MYL'
 
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"
