@@ -1,20 +1,9 @@
-# Файл: handlers.py
-# Изменения: 
-# - В show_deal_data: Поле адреса UF_CRM_1747140776508 с парсингом JSON для ключа 'address'. Если парсинг не удался, оставляем оригинальное значение с логом ошибки.
-#   Парсинг даты для delivery_date (UF_CRM_1756808681) без времени для ветки 2.
-#   Парсинг даты для pickup_date (UF_CRM_1758315289607) без времени для обеих веток.
-#   Для контакта используется SECOND_NAME: contact = ' '.join([part for part in [NAME, SECOND_NAME, LAST_NAME] if part]).strip()
-#   Проверка завершенности сделки по STAGE_ID ('PREPARATION' для branch 1, 'UC_I1EGHC' для branch 2) с добавлением '✅ ' перед TITLE.
-# - В handle_branch_choice: Для списка сделок добавляем '✅ ' перед TITLE, если завершена.
-# - Импорт: import json для парсинга JSON.
-# - В upload_file_handler: Добавление URL в поле UF_CRM_1756808993.
-# - Остальной код без изменений.
 from aiogram import Dispatcher, types, F
 from aiogram.filters import Command
 from aiogram.filters.command import Command
 from aiogram.types import ContentType
 from aiogram.fsm.context import FSMContext
-from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, add_link_to_deal_field
+from bitrix_api import get_deals_for_user, update_deal, get_user_id_by_tg, get_contact_data, get_enum_text, get_user_name_by_tg, set_user_name, get_deal_amount, upload_file_to_disk, add_link_to_deal_field, add_comment_to_deal
 from config import MANAGER_TG_ID, BITRIX_FOLDER_ID
 from models import Deal
 from states import ShiftStates
@@ -131,7 +120,6 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except (json.JSONDecodeError, TypeError) as e:
             logging.error(f"Error parsing address JSON: {e}. Keeping original: {address}")
     
-    # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
         try:
             dt = datetime.fromisoformat(delivery_date)
@@ -139,7 +127,6 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except ValueError as e:
             logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
     
-    # Форматируем дату забора без времени (для обеих веток)
     if pickup_date != 'Не указана':
         try:
             dt = datetime.fromisoformat(pickup_date)
@@ -282,15 +269,26 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
     comment = message.text.strip()
     user_id = message.from_user.id
     user_name = await get_user_name_by_tg(user_id)
+    
+    # Формируем уведомление для менеджера
     if branch == 1:
         notification = f"Курьер {user_name} ({user_id}) не подтвердил заказ (Ветка 1)."
     else:
         notification = f"Курьер {user_name} ({user_id}) не принял заявку (Ветка 2)."
     if comment:
         notification += f" Комментарий: {comment}"
-    await message.bot.send_message(MANAGER_TG_ID, notification)
-    await message.answer("Отказ подтверждён. Уведомление отправлено руководителю.")
     
+    # Отправляем уведомление менеджеру
+    await message.bot.send_message(MANAGER_TG_ID, notification)
+    
+    # Добавляем комментарий к сделке в Bitrix24
+    if deal_id and comment:
+        comment_text = f"Отказ курьера {user_name} ({user_id}): {comment}"
+        await add_comment_to_deal(deal_id, comment_text)
+    
+    await message.answer("Отказ подтверждён. Уведомление отправлено руководителю и добавлено в комментарии к сделке.")
+    
+    # Обновляем стадию сделки
     if branch == 1 and deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'})
     
