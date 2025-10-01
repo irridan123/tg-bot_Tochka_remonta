@@ -12,5 +12,5 @@ class ShiftStates(StatesGroup):
     enter_amount = State()
     enter_reject_comment = State()
     enter_name = State()
-    choose_date_change = State()  # Новое состояние для выбора изменения даты
-    enter_date = State()  # Новое состояние для ввода даты
+    choose_date_change = State()
+    enter_date = State()

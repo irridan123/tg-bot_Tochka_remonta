@@ -113,7 +113,7 @@ async def get_deal_field(deal_id: int, field_name: str) -> list:
             async with session.post(url, json=params) as resp:
                 data = await resp.json()
                 logging.debug(f"Bitrix deal field get response: {data}")
-                value = data.get('result', {}).get(field_name, [])
+                value = data.get('result', {}).get('field_name', [])
                 return value if isinstance(value, list) else [value] if value else []
         except Exception as e:
             logging.error(f"Bitrix deal field get error: {e}")
