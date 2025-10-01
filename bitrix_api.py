@@ -56,7 +56,7 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
         filter_params['UF_CRM_1756808681'] = None
     elif branch == 2:
         filter_params['!UF_CRM_1756808681'] = None
-        filter_params['STAGE_ID'] = 'UC_W02MYL'  # Фильтр по стадии "Назначена курьеру" для ветки 2
+        filter_params['STAGE_ID'] = 'UC_APPOINTED'
 
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"

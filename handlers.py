@@ -229,7 +229,15 @@ async def handle_finish_upload(query: types.CallbackQuery, state: FSMContext):
 async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
-    if deal_id:
+    branch = data.get('branch')
+    if deal_id and branch == 1:
+        current_date = datetime.now().date().isoformat()  # Текущая дата в формате YYYY-MM-DD
+        await update_deal(deal_id, {
+            'STAGE_ID': 'PREPARATION',
+            'UF_CRM_1758315289607': current_date  # Обновляем поле даты
+        })
+        await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе' и дата обновлена.")
+    elif deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
     await query.message.edit_reply_markup(reply_markup=None)
