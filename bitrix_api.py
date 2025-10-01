@@ -1,10 +1,3 @@
-# Файл: bitrix_api.py
-# Изменения: 
-# - В get_deals_for_user: Поле адреса UF_CRM_1747140776508 в select.
-# - Добавлена функция add_link_to_deal_field для добавления ссылки в множественное поле UF_CRM_1756808993.
-# - В upload_file_to_disk: Ответ содержит 'DETAIL_URL' или 'DOWNLOAD_URL'.
-# - Добавлено 'SECOND_NAME' в select для get_contact_data.
-# - Добавлено 'STAGE_ID' в select для get_deals_for_user.
 import aiohttp
 import json
 import os
@@ -63,6 +56,7 @@ async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
         filter_params['UF_CRM_1756808681'] = None
     elif branch == 2:
         filter_params['!UF_CRM_1756808681'] = None
+        filter_params['STAGE_ID'] = 'UC_W02MYL'  # Фильтр по стадии "Назначена курьеру" для ветки 2
 
     async with aiohttp.ClientSession() as session:
         url = f"{BITRIX_DEAL_WEBHOOK_URL}crm.deal.list"
