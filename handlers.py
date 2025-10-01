@@ -286,25 +286,31 @@ async def handle_date_change_choice(query: types.CallbackQuery, state: FSMContex
         await query.message.edit_reply_markup(reply_markup=None)
         await query.message.answer(f"Введите новую дату {date_label} в формате YYYY-MM-DD:")
         await state.set_state(ShiftStates.enter_date)
-    else:
+    else:  # change_courier
         notification = f"Курьер {user_name} не подтвердил заказ '{title}' (Ветка 1)." if branch == 1 else f"Курьер {user_name} не принял заявку '{title}' (Ветка 2)."
         if comment:
             notification += f" Комментарий: {comment}"
-        notification += f" Дата {date_label} не изменена."
+        notification += f" Запрошена смена курьера."
         
         await query.message.bot.send_message(MANAGER_TG_ID, notification)
         
         if deal_id and comment:
-            comment_text = f"Отказ курьера {user_name}: {comment}. Дата {date_label} не изменена."
+            comment_text = f"Отказ курьера {user_name}: {comment}. Запрошена смена курьера."
             await add_comment_to_deal(deal_id, comment_text)
         
         if branch == 1 and deal_id:
-            await update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'})
+            await update_deal(deal_id, {
+                'STAGE_ID': 'UC_O7XQVC',
+                'UF_CRM_1756808838': None  # Снимаем назначение курьера
+            })
         elif branch == 2 and deal_id:
-            await update_deal(deal_id, {'STAGE_ID': 'EXECUTING'})
+            await update_deal(deal_id, {
+                'STAGE_ID': 'EXECUTING',
+                'UF_CRM_1756808838': None  # Снимаем назначение курьера
+            })
         
         await query.message.edit_reply_markup(reply_markup=None)
-        await query.message.answer("Отказ подтверждён. Уведомление отправлено руководителю и добавлено в комментарии к сделке.")
+        await query.message.answer("Отказ подтверждён. Запрошена смена курьера, уведомление отправлено руководителю и добавлено в комментарии к сделке.")
         await state.clear()
 
 async def enter_reject_comment_handler(message: types.Message, state: FSMContext):
@@ -319,9 +325,9 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
     date_label = "привоза" if branch == 1 else "отвоза"
     keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
         [types.InlineKeyboardButton(text=f"Изменить дату {date_label}", callback_data="change_date"),
-         types.InlineKeyboardButton(text=f"Не изменять дату {date_label}", callback_data="no_change_date")]
+         types.InlineKeyboardButton(text="Сменить курьера", callback_data="change_courier")]
     ])
-    await message.answer(f"Хотите изменить дату {date_label}?", reply_markup=keyboard)
+    await message.answer(f"Хотите изменить дату {date_label} или сменить курьера?", reply_markup=keyboard)
     await state.update_data(reject_comment=comment)
     await state.set_state(ShiftStates.choose_date_change)
 
