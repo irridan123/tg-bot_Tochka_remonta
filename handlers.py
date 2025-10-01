@@ -111,6 +111,7 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     model = deal.get('UF_CRM_1727124284490', 'Не указана')
     address = deal.get('UF_CRM_1747140776508', 'Не указан')
     delivery_date = deal.get('UF_CRM_1756808681', 'Не указана')
+    pickup_date = deal.get('UF_CRM_1758315289607', 'Не указана')
     
     if address != 'Не указан':
         try:
@@ -119,6 +120,7 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except (json.JSONDecodeError, TypeError) as e:
             logging.error(f"Error parsing address JSON: {e}. Keeping original: {address}")
     
+    # Форматируем дату доставки без времени (только для ветки 2)
     if branch == 2 and delivery_date != 'Не указана':
         try:
             dt = datetime.fromisoformat(delivery_date)
@@ -126,10 +128,18 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         except ValueError as e:
             logging.error(f"Error parsing delivery date: {e}. Keeping original: {delivery_date}")
     
+    # Форматируем дату забора без времени (для обеих веток)
+    if pickup_date != 'Не указана':
+        try:
+            dt = datetime.fromisoformat(pickup_date)
+            pickup_date = dt.date().isoformat()
+        except ValueError as e:
+            logging.error(f"Error parsing pickup date: {e}. Keeping original: {pickup_date}")
+    
     is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
     title = ('✅ ' if is_completed else '') + deal['TITLE']
     
-    text = f"Сделка: {title}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}"
+    text = f"Сделка: {title}\nАдрес: {address}\nКонтакт: {contact}\nТелефон: {phone}\nВид техники: {type_text}\nМарка/модель: {model}\nДата забора: {pickup_date}"
     if branch == 2:
         text += f"\nДата доставки: {delivery_date}"
     
@@ -231,10 +241,10 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     deal_id = data.get('deal_id')
     branch = data.get('branch')
     if deal_id and branch == 1:
-        current_date = datetime.now().date().isoformat()  # Текущая дата в формате YYYY-MM-DD
+        current_date = datetime.now().date().isoformat()
         await update_deal(deal_id, {
             'STAGE_ID': 'PREPARATION',
-            'UF_CRM_1758315289607': current_date  # Обновляем поле даты
+            'UF_CRM_1758315289607': current_date
         })
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе' и дата обновлена.")
     elif deal_id:
