@@ -156,7 +156,7 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
         await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_delivery)
     
-    await state.update_data(deal_id=int(deal['ID']), branch=branch)
+    await state.update_data(deal_id=int(deal['ID']), branch=branch, title=deal['TITLE'])  # Сохраняем TITLE в состоянии
 
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
     if query.data == "accept_pickup":
@@ -238,15 +238,23 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     deal_id = data.get('deal_id')
     branch = data.get('branch')
+    title = data.get('title')
+    user_id = query.from_user.id
+    user_name = await get_user_name_by_tg(user_id)
+    
     if deal_id and branch == 1:
         current_date = datetime.now().date().isoformat()
         await update_deal(deal_id, {
             'STAGE_ID': 'PREPARATION',
             'UF_CRM_1758315289607': current_date
         })
+        await add_comment_to_deal(deal_id, f"Заказ успешно завершён - устройство в офисе")
+        await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка 1).")
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе' и дата обновлена.")
     elif deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})
+        await add_comment_to_deal(deal_id, f"Заказ успешно завершён - устройство в офисе")
+        await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка {branch}).")
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
     await query.message.edit_reply_markup(reply_markup=None)
     await state.clear()
@@ -266,29 +274,26 @@ async def enter_reject_comment_handler(message: types.Message, state: FSMContext
     data = await state.get_data()
     branch = data.get('branch')
     deal_id = data.get('deal_id')
+    title = data.get('title')
     comment = message.text.strip()
     user_id = message.from_user.id
     user_name = await get_user_name_by_tg(user_id)
     
-    # Формируем уведомление для менеджера
     if branch == 1:
-        notification = f"Курьер {user_name} ({user_id}) не подтвердил заказ (Ветка 1)."
+        notification = f"Курьер {user_name} ({user_id}) не подтвердил заказ '{title}' (Ветка 1)."
     else:
-        notification = f"Курьер {user_name} ({user_id}) не принял заявку (Ветка 2)."
+        notification = f"Курьер {user_name} ({user_id}) не принял заявку '{title}' (Ветка 2)."
     if comment:
         notification += f" Комментарий: {comment}"
     
-    # Отправляем уведомление менеджеру
     await message.bot.send_message(MANAGER_TG_ID, notification)
     
-    # Добавляем комментарий к сделке в Bitrix24
     if deal_id and comment:
-        comment_text = f"Отказ курьера {user_name} ({user_id}): {comment}"
+        comment_text = f"Отказ курьера {user_name}: {comment}"
         await add_comment_to_deal(deal_id, comment_text)
     
     await message.answer("Отказ подтверждён. Уведомление отправлено руководителю и добавлено в комментарии к сделке.")
     
-    # Обновляем стадию сделки
     if branch == 1 and deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'UC_O7XQVC'})
     
@@ -305,6 +310,9 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
         return
     data = await state.get_data()
     deal_id = data.get('deal_id')
+    title = data.get('title')
+    user_id = message.from_user.id
+    user_name = await get_user_name_by_tg(user_id)
     if deal_id:
         current_amount = await get_deal_amount(deal_id)
         new_amount = current_amount + amount
@@ -313,6 +321,8 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
             'OPPORTUNITY': new_amount,
             'UF_CRM_1756810984': amount
         })
+        await add_comment_to_deal(deal_id, f"Заказ успешно завершён - бабки у нас")
+        await message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка 2).")
         await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
     await state.clear()
 
