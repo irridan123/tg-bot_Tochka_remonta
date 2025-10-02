@@ -401,6 +401,7 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     if deal_id:
         await update_deal(deal_id, {
             'STAGE_ID': 'UC_I1EGHC',
+            'OPPORTUNITY': amount,  # Заменяем OPPORTUNITY введённой суммой
             'UF_CRM_1756810984': amount
         })
         await add_comment_to_deal(deal_id, f"Заказ успешно завершён - бабки у нас")
