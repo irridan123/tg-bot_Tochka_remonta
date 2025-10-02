@@ -259,7 +259,7 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
         current_date = datetime.now().date().isoformat()
         if query.data == "to_courier":
             await update_deal(deal_id, {
-                'STAGE_ID': 'UC_3BLSIG',
+                'STAGE_ID': 'UC_WITH_COURIER',
                 'UF_CRM_1758315289607': current_date
             })
             await add_comment_to_deal(deal_id, f"Заказ у курьера")
