@@ -230,10 +230,21 @@ async def handle_finish_upload(query: types.CallbackQuery, state: FSMContext):
     await query.answer("Загрузка файлов завершена.")
     await query.message.edit_reply_markup(reply_markup=None)
     
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="Завершить заказ", callback_data="complete_order")]
-    ])
-    await query.message.answer("Нажмите, чтобы завершить заказ:", reply_markup=keyboard)
+    data = await state.get_data()
+    branch = data.get('branch')
+    
+    if branch == 1:
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Перенести на стадию 'У курьера'", callback_data="to_courier")],
+            [types.InlineKeyboardButton(text="Перенести на стадию 'Устройство в офисе'", callback_data="to_office")]
+        ])
+        await query.message.answer("Выберите действие:", reply_markup=keyboard)
+    else:
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Завершить заказ", callback_data="complete_order")]
+        ])
+        await query.message.answer("Нажмите, чтобы завершить заказ:", reply_markup=keyboard)
+    
     await state.set_state(ShiftStates.complete_order)
 
 async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
@@ -246,18 +257,28 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
     
     if deal_id and branch == 1:
         current_date = datetime.now().date().isoformat()
-        await update_deal(deal_id, {
-            'STAGE_ID': 'PREPARATION',
-            'UF_CRM_1758315289607': current_date
-        })
-        await add_comment_to_deal(deal_id, f"Заказ успешно завершён - устройство в офисе")
-        await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка 1).")
-        await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе' и дата обновлена.")
+        if query.data == "to_courier":
+            await update_deal(deal_id, {
+                'STAGE_ID': 'UC_3BLSIG',
+                'UF_CRM_1758315289607': current_date
+            })
+            await add_comment_to_deal(deal_id, f"Заказ у курьера")
+            await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} перенёс заказ '{title}' на стадию 'У курьера' (Ветка 1).")
+            await query.answer("Заказ завершён. Сделка перемещена в стадию 'У курьера' и дата обновлена.")
+        else:  # to_office
+            await update_deal(deal_id, {
+                'STAGE_ID': 'PREPARATION',
+                'UF_CRM_1758315289607': current_date
+            })
+            await add_comment_to_deal(deal_id, f"Заказ успешно завершён - устройство в офисе")
+            await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка 1).")
+            await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе' и дата обновлена.")
     elif deal_id:
         await update_deal(deal_id, {'STAGE_ID': 'PREPARATION'})
         await add_comment_to_deal(deal_id, f"Заказ успешно завершён - устройство в офисе")
         await query.message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка {branch}).")
         await query.answer("Заказ завершён. Сделка перемещена в стадию 'Устройство в офисе'.")
+    
     await query.message.edit_reply_markup(reply_markup=None)
     await state.clear()
 
