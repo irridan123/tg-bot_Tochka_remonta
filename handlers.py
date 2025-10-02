@@ -259,7 +259,7 @@ async def handle_complete_order(query: types.CallbackQuery, state: FSMContext):
         current_date = datetime.now().date().isoformat()
         if query.data == "to_courier":
             await update_deal(deal_id, {
-                'STAGE_ID': 'UC_WITH_COURIER',
+                'STAGE_ID': 'UC_3BLSIG',
                 'UF_CRM_1758315289607': current_date
             })
             await add_comment_to_deal(deal_id, f"Заказ у курьера")
@@ -308,15 +308,15 @@ async def handle_date_change_choice(query: types.CallbackQuery, state: FSMContex
         await query.message.answer(f"Введите новую дату {date_label} в формате YYYY-MM-DD:")
         await state.set_state(ShiftStates.enter_date)
     else:  # change_courier
-        notification = f"Курьер {user_name} не подтвердил заказ '{title}' (Ветка 1)." if branch == 1 else f"Курьер {user_name} не принял заявку '{title}' (Ветка 2)."
+        notification = f"Курьер {user_name} не подтвердил заказ '{title}' (Ветка 1).\n" if branch == 1 else f"Курьер {user_name} не принял заявку '{title}' (Ветка 2).\n"
         if comment:
-            notification += f" Комментарий: {comment}"
-        notification += f" Запрошена смена курьера."
+            notification += f"Комментарий: {comment}\n"
+        notification += f"Запрошена смена курьера."
         
         await query.message.bot.send_message(MANAGER_TG_ID, notification)
         
         if deal_id and comment:
-            comment_text = f"Отказ курьера {user_name}: {comment}. Запрошена смена курьера."
+            comment_text = f"Отказ курьера {user_name}: {comment}\nЗапрошена смена курьера."
             await add_comment_to_deal(deal_id, comment_text)
         
         if branch == 1 and deal_id:
@@ -368,15 +368,15 @@ async def enter_date_handler(message: types.Message, state: FSMContext):
         await message.answer("Неверный формат даты. Пожалуйста, введите дату в формате YYYY-MM-DD.")
         return
     
-    notification = f"Курьер {user_name} не подтвердил заказ '{title}' (Ветка 1)." if branch == 1 else f"Курьер {user_name} не принял заявку '{title}' (Ветка 2)."
+    notification = f"Курьер {user_name} не подтвердил заказ '{title}' (Ветка 1).\n" if branch == 1 else f"Курьер {user_name} не принял заявку '{title}' (Ветка 2).\n"
     if comment:
-        notification += f" Комментарий: {comment}"
-    notification += f" Дата {date_label} изменена на {new_date}."
+        notification += f"Комментарий: {comment}\n"
+    notification += f"Дата {date_label} изменена на {new_date}."
     
     await message.bot.send_message(MANAGER_TG_ID, notification)
     
     if deal_id and comment:
-        comment_text = f"Отказ курьера {user_name}: {comment}. Дата {date_label} изменена на {new_date}."
+        comment_text = f"Отказ курьера {user_name}: {comment}\nДата {date_label} изменена на {new_date}."
         await add_comment_to_deal(deal_id, comment_text)
     
     if branch == 1 and deal_id:
@@ -401,7 +401,7 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     if deal_id:
         await update_deal(deal_id, {
             'STAGE_ID': 'UC_I1EGHC',
-            'OPPORTUNITY': amount,  # Заменяем OPPORTUNITY введённой суммой
+            'OPPORTUNITY': amount,
             'UF_CRM_1756810984': amount
         })
         await add_comment_to_deal(deal_id, f"Заказ успешно завершён - бабки у нас")

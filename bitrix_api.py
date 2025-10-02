@@ -53,7 +53,7 @@ async def set_user_name(tg_id: int, name: str):
 async def get_deals_for_user(user_id: int, branch: int) -> list[dict]:
     filter_params = {'UF_CRM_1756808838': user_id}
     if branch == 1:
-        filter_params['STAGE_ID'] = 'UC_GDXHB8'  # Убрано условие UF_CRM_1756808681 = None
+        filter_params['STAGE_ID'] = 'UC_GDXHB8'
     elif branch == 2:
         filter_params['!UF_CRM_1756808681'] = None
         filter_params['STAGE_ID'] = 'UC_W02MYL'
