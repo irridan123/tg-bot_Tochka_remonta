@@ -301,12 +301,12 @@ async def handle_date_change_choice(query: types.CallbackQuery, state: FSMContex
         if branch == 1 and deal_id:
             await update_deal(deal_id, {
                 'STAGE_ID': 'UC_O7XQVC',
-                'UF_CRM_1756808838': None  # Снимаем назначение курьера
+                'UF_CRM_1756808838': None
             })
         elif branch == 2 and deal_id:
             await update_deal(deal_id, {
                 'STAGE_ID': 'EXECUTING',
-                'UF_CRM_1756808838': None  # Снимаем назначение курьера
+                'UF_CRM_1756808838': None
             })
         
         await query.message.edit_reply_markup(reply_markup=None)
@@ -359,15 +359,9 @@ async def enter_date_handler(message: types.Message, state: FSMContext):
         await add_comment_to_deal(deal_id, comment_text)
     
     if branch == 1 and deal_id:
-        await update_deal(deal_id, {
-            'STAGE_ID': 'UC_O7XQVC',
-            'UF_CRM_1758315289607': new_date
-        })
+        await update_deal(deal_id, {'UF_CRM_1758315289607': new_date})
     elif branch == 2 and deal_id:
-        await update_deal(deal_id, {
-            'STAGE_ID': 'EXECUTING',
-            'UF_CRM_1756808681': new_date
-        })
+        await update_deal(deal_id, {'UF_CRM_1756808681': new_date})
     
     await message.answer("Отказ подтверждён. Дата обновлена, уведомление отправлено руководителю и добавлено в комментарии к сделке.")
     await state.clear()
@@ -384,16 +378,13 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     user_name = await get_user_name_by_tg(user_id)
     if deal_id:
-        current_amount = await get_deal_amount(deal_id)
-        new_amount = current_amount + amount
         await update_deal(deal_id, {
             'STAGE_ID': 'UC_I1EGHC',
-            'OPPORTUNITY': new_amount,
             'UF_CRM_1756810984': amount
         })
         await add_comment_to_deal(deal_id, f"Заказ успешно завершён - бабки у нас")
         await message.bot.send_message(MANAGER_TG_ID, f"Курьер {user_name} завершил заказ '{title}' (Ветка 2).")
-        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена и добавлена к общей).")
+        await message.answer("Сделка обновлена в CRM (стадия 'бабки у нас', сумма сохранена).")
     await state.clear()
 
 async def handle_return_to_menu(query: types.CallbackQuery, state: FSMContext):
