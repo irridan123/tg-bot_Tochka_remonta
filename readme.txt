@@ -31,4 +31,4 @@ name: name - это имя, которое будет отображаться �
 2. Ждите данного сообщения - INFO:aiogram.dispatcher:Run polling for bot @tochka_remonta_delivery_bot id=7954191958 - 'tochka_remonta'
 3. Поздравляю, вы запустили сервер! Ваш тг бот работает. 
 
-git push amvera имя_основной_ветки:master
+git push amvera main:master
