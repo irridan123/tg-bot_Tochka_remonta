@@ -17,18 +17,19 @@ def setup_handlers(dp: Dispatcher):
     dp.message.register(start_shift, Command('start_shift'))
     dp.message.register(set_name_handler, Command('set_name'))
     dp.callback_query.register(handle_branch_choice, ShiftStates.choose_branch)
-    dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal)
-    dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup)
+    dp.callback_query.register(handle_deal_choice, ShiftStates.choose_deal, lambda query: query.data.startswith("deal_"))
+    dp.callback_query.register(handle_pickup_confirm, ShiftStates.confirm_pickup, lambda query: query.data in ("accept_pickup", "reject_pickup"))
     dp.message.register(update_model_handler, ShiftStates.update_model)
     dp.message.register(enter_complectation_handler, ShiftStates.enter_complectation)
     dp.message.register(upload_file_handler, F.photo | F.document, ShiftStates.upload_files)
     dp.callback_query.register(handle_finish_upload, lambda query: query.data == "finish_upload")
     dp.callback_query.register(handle_complete_order, ShiftStates.complete_order)
-    dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery)
+    dp.callback_query.register(handle_delivery_confirm, ShiftStates.confirm_delivery, lambda query: query.data in ("accept_delivery", "reject_delivery"))
     dp.message.register(enter_amount_handler, ShiftStates.enter_amount)
     dp.message.register(enter_reject_comment_handler, ShiftStates.enter_reject_comment)
     dp.message.register(enter_name_handler, ShiftStates.enter_name)
     dp.callback_query.register(handle_return_to_menu, lambda query: query.data == "return_to_menu")
+    dp.callback_query.register(handle_back_to_branch, lambda query: query.data == "back_to_branch")
     dp.callback_query.register(handle_date_change_choice, ShiftStates.choose_date_change)
     dp.message.register(enter_date_handler, ShiftStates.enter_date)
 
@@ -72,12 +73,13 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
     await query.answer(f"Выбрана ветка {branch}.")
     user_id = await get_user_id_by_tg(query.from_user.id)
     deals = await get_deals_for_user(user_id, branch)
+    await state.update_data(branch=branch, deals=deals)
     if not deals:
         text = "Нет активных сделок для получения товара." if branch == 1 else "Нет активных сделок для доставки товара."
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Вернуться", callback_data="return_to_menu")]
+            [types.InlineKeyboardButton(text="Вернуться", callback_data="back_to_branch")]
         ])
-        await query.message.answer(text, reply_markup=keyboard)
+        await query.message.edit_text(text, reply_markup=keyboard)
         return
     if len(deals) == 1:
         await show_deal_data(query, state, deals[0], branch)
@@ -88,10 +90,10 @@ async def handle_branch_choice(query: types.CallbackQuery, state: FSMContext):
             is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
             button_text = ('✅ ' if is_completed else '') + deal['TITLE']
             inline_keyboard.append([types.InlineKeyboardButton(text=button_text, callback_data=f"deal_{deal['ID']}")])
+        inline_keyboard.append([types.InlineKeyboardButton(text="Назад", callback_data="back_to_branch")])
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
-        await query.message.answer(text, reply_markup=keyboard)
+        await query.message.edit_text(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.choose_deal)
-        await state.update_data(branch=branch, deals=deals)
 
 async def handle_deal_choice(query: types.CallbackQuery, state: FSMContext):
     deal_id = int(query.data.split('_')[1])
@@ -146,18 +148,19 @@ async def show_deal_data(query: types.CallbackQuery, state: FSMContext, deal: di
     if branch == 1:
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Подтвердить забор", callback_data="accept_pickup"),
-             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_pickup")]
+             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_pickup")],
+            [types.InlineKeyboardButton(text="Назад", callback_data="return_to_menu")]
         ])
-        await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_pickup)
     else:
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Принять заявку", callback_data="accept_delivery"),
-             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_delivery")]
+             types.InlineKeyboardButton(text="Отказаться", callback_data="reject_delivery")],
+            [types.InlineKeyboardButton(text="Назад", callback_data="return_to_menu")]
         ])
-        await query.message.answer(text, reply_markup=keyboard)
         await state.set_state(ShiftStates.confirm_delivery)
     
+    await query.message.edit_text(text, reply_markup=keyboard)
     await state.update_data(deal_id=int(deal['ID']), branch=branch, title=deal['TITLE'])
 
 async def handle_pickup_confirm(query: types.CallbackQuery, state: FSMContext):
@@ -293,6 +296,23 @@ async def handle_delivery_confirm(query: types.CallbackQuery, state: FSMContext)
         await query.message.answer("Введите комментарий к отказу:")
         await state.set_state(ShiftStates.enter_reject_comment)
 
+async def handle_back_to_branch(query: types.CallbackQuery, state: FSMContext):
+    await query.message.edit_reply_markup(reply_markup=None)
+    await query.answer("Возвращаемся к выбору смены.")
+    user_id = await get_user_id_by_tg(query.from_user.id)
+    deals_branch1 = await get_deals_for_user(user_id, 1)
+    deals_branch2 = await get_deals_for_user(user_id, 2)
+    count1 = len(deals_branch1)
+    count2 = len(deals_branch2)
+    text = "Выберите тип смены:"
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text=f"1. Получение товара от заказчика ({count1} сделок)", callback_data="branch_1")],
+        [types.InlineKeyboardButton(text=f"2. Доставка отремонтированного товара ({count2} сделок)", callback_data="branch_2")]
+    ])
+    await query.message.edit_text(text, reply_markup=keyboard)
+    await state.set_state(ShiftStates.choose_branch)
+    await state.update_data(deals=None, branch=None)
+
 async def handle_date_change_choice(query: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     branch = data.get('branch')
@@ -411,11 +431,31 @@ async def enter_amount_handler(message: types.Message, state: FSMContext):
 
 async def handle_return_to_menu(query: types.CallbackQuery, state: FSMContext):
     await query.message.edit_reply_markup(reply_markup=None)
-    await query.answer("Возвращаемся к выбору смены.")
-    text = "Выберите тип смены:"
-    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-        [types.InlineKeyboardButton(text="1. Получение товара от заказчика", callback_data="branch_1")],
-        [types.InlineKeyboardButton(text="2. Доставка отремонтированного товара", callback_data="branch_2")]
-    ])
-    await query.message.answer(text, reply_markup=keyboard)
-    await state.set_state(ShiftStates.choose_branch)
+    data = await state.get_data()
+    branch = data.get('branch')
+    if branch and 'deals' in data:
+        await query.answer("Возвращаемся к списку сделок.")
+        text = "Выберите сделку:"
+        inline_keyboard = []
+        for deal in data['deals']:
+            is_completed = (branch == 1 and deal.get('STAGE_ID') == 'PREPARATION') or (branch == 2 and deal.get('STAGE_ID') == 'UC_I1EGHC')
+            button_text = ('✅ ' if is_completed else '') + deal['TITLE']
+            inline_keyboard.append([types.InlineKeyboardButton(text=button_text, callback_data=f"deal_{deal['ID']}")])
+        inline_keyboard.append([types.InlineKeyboardButton(text="Назад", callback_data="back_to_branch")])
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=inline_keyboard)
+        await query.message.edit_text(text, reply_markup=keyboard)
+        await state.set_state(ShiftStates.choose_deal)
+    else:
+        await query.answer("Возвращаемся к выбору смены.")
+        user_id = await get_user_id_by_tg(query.from_user.id)
+        deals_branch1 = await get_deals_for_user(user_id, 1)
+        deals_branch2 = await get_deals_for_user(user_id, 2)
+        count1 = len(deals_branch1)
+        count2 = len(deals_branch2)
+        text = "Выберите тип смены:"
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text=f"1. Получение товара от заказчика ({count1} сделок)", callback_data="branch_1")],
+            [types.InlineKeyboardButton(text=f"2. Доставка отремонтированного товара ({count2} сделок)", callback_data="branch_2")]
+        ])
+        await query.message.edit_text(text, reply_markup=keyboard)
+        await state.set_state(ShiftStates.choose_branch)
